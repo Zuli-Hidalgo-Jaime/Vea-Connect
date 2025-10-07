@@ -1,0 +1,35 @@
+# VEA Connect - Variables de Entorno
+# Copia este archivo como .env y configura tus valores
+
+# Azure AI Search
+SEARCH_SERVICE_NAME=vea-connect-search
+SEARCH_SERVICE_KEY=tu_clave_de_busqueda
+SEARCH_SERVICE_ENDPOINT=https://vea-connect-search.search.windows.net
+
+# Azure Storage
+STORAGE_ACCOUNT_NAME=veaconnectstorage
+STORAGE_ACCOUNT_KEY=tu_clave_de_almacenamiento
+STORAGE_CONTAINER_NAME=admin-documentos
+STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=veaconnectstorage;AccountKey=tu_clave;EndpointSuffix=core.windows.net
+
+# Azure Cognitive Services
+COGNITIVE_SERVICES_KEY=tu_clave_cognitiva
+COGNITIVE_SERVICES_ENDPOINT=https://vea-connect-cognitive.cognitiveservices.azure.com/
+
+# Azure OpenAI
+OPENAI_API_KEY=tu_clave_openai
+OPENAI_ENDPOINT=https://vea-connect-openai.openai.azure.com/
+OPENAI_DEPLOYMENT_NAME=gpt-4
+
+# WhatsApp (opcional)
+WHATSAPP_ACCESS_TOKEN=tu_token_whatsapp
+WHATSAPP_VERIFY_TOKEN=tu_token_verificacion
+WHATSAPP_PHONE_NUMBER_ID=tu_phone_number_id
+
+# Aplicación
+DEBUG=False
+PORT=8000
+FRONTEND_URL=http://localhost:3000
+
+
+
