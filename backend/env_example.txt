@@ -1,0 +1,41 @@
+# VEA Connect - Variables de Entorno
+# Copia este archivo como .env y configura tus valores
+
+# Azure AI Studio (AIProjectClient)
+AIPROJECT_CONNECTION_STRING=eastus.api.azureml.ms;c1cacc0e-c4b7-414c-bc75-9926e51d9bf5;vea-connect-rg;vea-ai-foundry-project
+AISEARCH_INDEX_NAME=vea-connect-index
+EMBEDDINGS_MODEL=text-embedding-ada-002
+STORAGE_CONTAINER_NAME=admin-documentos
+
+# Azure AI Search (Método tradicional)
+SEARCH_SERVICE_NAME=vea-connect-search
+SEARCH_SERVICE_ENDPOINT=https://vea-connect-search.search.windows.net
+SEARCH_SERVICE_KEY=tu_clave_de_busqueda_aqui
+SEARCH_INDEX_NAME=vea-connect-index
+
+# Azure Storage
+STORAGE_ACCOUNT_NAME=veaconnectstorage
+STORAGE_CONTAINER_NAME=admin-documentos
+STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=veaconnectstorage;AccountKey=tu_clave_aqui;EndpointSuffix=core.windows.net
+
+# Azure Cognitive Services
+COGNITIVE_SERVICES_KEY=tu_clave_cognitiva_aqui
+COGNITIVE_SERVICES_ENDPOINT=https://vea-connect-cognitive.cognitiveservices.azure.com/
+
+# Azure OpenAI GPT (opcional para chatbot)
+OPENAI_API_KEY=TU_OPENAI_API_KEY
+OPENAI_ENDPOINT=https://vea-ai-service.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2025-01-01-preview
+OPENAI_DEPLOYMENT_NAME=gpt-35-turbo
+OPENAI_API_VERSION="2024-12-01-preview"
+
+# Aplicación
+DEBUG=False
+PORT=8000
+FRONTEND_URL=http://localhost:3000
+
+# Chatbot
+CHATBOT_LANGUAGE=es
+CHATBOT_TONE=alegre_y_amigable
+CHATBOT_GREETING=Hola! Soy VEA Connect, tu asistente virtual de la iglesia. En que puedo ayudarte hoy?
+CHATBOT_FAREWELL=Que tengas un dia bendecido! Si necesitas algo mas, no dudes en preguntar.
+CHATBOT_ESCALATION=Te voy a conectar con nuestro equipo de Relaciones Publicas para que te ayuden mejor con esa consulta.

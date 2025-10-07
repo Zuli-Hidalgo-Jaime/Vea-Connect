@@ -1,0 +1,14 @@
+{
+  "name": "vea-connect-datasource",
+  "description": "Fuente de datos de Azure Blob Storage para VEA Connect",
+  "type": "azureblob",
+  "credentials": {
+    "connectionString": "DefaultEndpointsProtocol=https;AccountName=TU_STORAGE_ACCOUNT;AccountKey=TU_STORAGE_KEY;EndpointSuffix=core.windows.net"
+  },
+  "container": {
+    "name": "vea-files"
+  }
+}
+
+
+
