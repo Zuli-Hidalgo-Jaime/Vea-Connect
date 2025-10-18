@@ -1,0 +1,5 @@
+[33m421d1c9[m changes docker file
+[33mdc48da4[m Fix health check in deployment workflow
+[33m1ee7baf[m Remove duplicate requirements.txt to fix deployment conflicts
+[33m3b70a76[m fix errors tests
+[33m8eb0750[m Limpieza de credenciales sensibles y preparación para despliegue y publicación en GitHub

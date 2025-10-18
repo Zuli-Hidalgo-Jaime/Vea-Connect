@@ -1,0 +1,30 @@
+{% extends 'core/base_dashboard.html' %}
+{% load static %}
+
+{% block title %}Eliminar Contacto{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">Eliminar Contacto</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{% url 'dashboard:home' %}">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'directory:contact_list' %}">Directorio</a></li>
+        <li class="breadcrumb-item active">Eliminar Contacto</li>
+    </ol>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="fas fa-trash me-1"></i>
+            Eliminar Contacto
+        </div>
+        <div class="card-body">
+            <p>¿Estás seguro de que deseas eliminar el contacto "{{ contact.first_name }} {{ contact.last_name }}"?</p>
+            <form method="post">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-danger">Eliminar</button>
+                <a href="{% url 'directory:contact_list' %}" class="btn btn-secondary">Cancelar</a>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %} 

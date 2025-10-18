@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block title %}Embeddings List{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Embeddings List</h1>
+    <a href="{% url 'embeddings:create' %}" class="btn btn-primary mb-3">Create New Embedding</a>
+    
+    {% if embeddings %}
+    <div class="list-group">
+        {% for embedding in embeddings %}
+        <div class="list-group-item">
+            <h5>{{ embedding.text|truncatewords:10 }}</h5>
+            <p><strong>Type:</strong> {{ embedding.source_type }}</p>
+            <p><strong>Created:</strong> {{ embedding.created_at|date:"M d, Y" }}</p>
+            <div class="btn-group">
+                <a href="{% url 'embeddings:delete' embedding.id %}" class="btn btn-sm btn-danger">Delete</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>No embeddings found.</p>
+    {% endif %}
+</div>
+{% endblock %} 

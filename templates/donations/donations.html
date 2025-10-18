@@ -1,0 +1,144 @@
+{% extends 'core/base_dashboard.html' %}
+{% load static %}
+
+{% block title %}Donaciones{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0">
+    <div class="row g-4">
+        <!-- Contenido principal a la izquierda -->
+        <div class="col-lg-9 mb-4 order-lg-1 order-2">
+            <div class="d-flex justify-content-between align-items-center my-4">
+                <h2 class="fw-bold d-flex align-items-center mb-0" style="color:#1a237e; text-align:left;">
+                    <i class="fa fa-hand-holding-heart me-2" style="color:#1a237e; font-size:1.5rem;"></i>
+                    Donaciones
+                </h2>
+                <a href="{% url 'donations:create' %}" class="btn" style="background-color:#1a237e; color:#fff;">
+                    <i class="fa fa-plus me-1"></i> Nueva donación
+                </a>
+            </div>
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <form method="get" class="input-group mb-3" action="">
+                        <input type="text" name="q" class="form-control" placeholder="Buscar por título, tipo o entidad..." value="{{ query|default:'' }}">
+                        <button class="btn btn-outline-dark" type="submit">
+                            <i class="fas fa-search me-1"></i> Buscar
+                        </button>
+                    </form>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Título</th>
+                                    <th>Tipo</th>
+                                    <th>Monto</th>
+                                    <th>Entidad</th>
+                                    <th>Ubicación</th>
+                                    <th>Creado por</th>
+                                    <th>Fecha</th>
+                                    <th class="text-center">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for donation in donations %}
+                                <tr>
+                                    <td>
+                                        {% if donation.title %}
+                                            {{ donation.title }}
+                                        {% elif donation.donation_type %}
+                                            {{ donation.donation_type.name }}
+                                        {% else %}
+                                            Sin tipo
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge 
+                                            {% if donation.donation_type and donation.donation_type.name == 'Monetaria' %}bg-success
+                                            {% elif donation.donation_type and donation.donation_type.name == 'En especie' %}bg-info
+                                            {% elif donation.donation_type and donation.donation_type.name == 'Medicamentos' %}bg-warning text-dark
+                                            {% elif donation.donation_type and donation.donation_type.name == 'Voluntariado' %}bg-primary
+                                            {% else %}bg-secondary{% endif %}">
+                                            {% if donation.donation_type %}{{ donation.donation_type.name }}{% else %}Sin tipo{% endif %}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if donation.amount %}
+                                            ${{ donation.amount|floatformat:2 }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ donation.entity|default:"-" }}</td>
+                                    <td>{{ donation.location|default:"-" }}</td>
+                                    <td>{{ donation.created_by.get_full_name|default:donation.created_by.username|default:"-" }}</td>
+                                    <td>{{ donation.created_at|date:"d/m/Y" }}</td>
+                                    <td class="text-center">
+                                        {% if user.is_superuser or donation.created_by == user %}
+                                        <a href="{% url 'donations:edit' donation.pk %}" class="btn btn-sm btn-warning me-1" title="Editar"><i class="fas fa-edit"></i></a>
+                                        <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal" data-donation-id="{{ donation.pk }}" data-donation-title="{% if donation.title %}{{ donation.title }}{% elif donation.donation_type %}{{ donation.donation_type.name }}{% else %}Sin tipo{% endif %}" title="Eliminar"><i class="fas fa-trash"></i></button>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted">
+                                        {% if query %}
+                                            No se encontraron donaciones que coincidan con la búsqueda.
+                                        {% else %}
+                                            No hay donaciones registradas.
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Menú lateral a la derecha -->
+        <!-- Eliminado: col-lg-3 con filtros -->
+    </div>
+</div>
+
+<!-- Modal de confirmación de borrado -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteModalLabel">Confirmar eliminación</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                ¿Estás seguro de que deseas eliminar la donación "<span id="donationTitle"></span>"?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <form id="deleteForm" method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Eliminar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const deleteModal = document.getElementById('deleteModal');
+    if (deleteModal) {
+        deleteModal.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            const donationId = button.getAttribute('data-donation-id');
+            const donationTitle = button.getAttribute('data-donation-title');
+            
+            const modalTitle = deleteModal.querySelector('#donationTitle');
+            const deleteForm = deleteModal.querySelector('#deleteForm');
+            
+            modalTitle.textContent = donationTitle;
+            deleteForm.action = `/donations/${donationId}/delete/`;
+        });
+    }
+});
+</script>
+{% endblock %} 

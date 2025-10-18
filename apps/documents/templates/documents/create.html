@@ -1,0 +1,86 @@
+{% extends "core/base_dashboard.html" %}
+{% load static %}
+
+{% block title %}Subir Documento - VEA Connect{% endblock %}
+
+{% block content %}
+<div class="container mt-4" style="font-family: 'Roboto', sans-serif; max-width: 700px;">
+    <div class="card shadow">
+        <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-upload me-2"></i>Sube aquí tus documentos</h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" enctype="multipart/form-data">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Error:</strong> Por favor, verifica los datos ingresados e intenta nuevamente.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+                    </div>
+                {% endif %}
+                <div class="mb-3">
+                    {{ form.title.label_tag }}
+                    {{ form.title }}
+                    {% if form.title.errors %}
+                        <div class="text-danger small mt-1">
+                            <i class="fas fa-exclamation-circle me-1"></i>
+                            {{ form.title.errors.0 }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="mb-3" id="file-field-container">
+                    {{ form.file.label_tag }}
+                    {{ form.file }}
+                    {% if form.file.errors %}
+                        <div class="text-danger small mt-1">
+                            <i class="fas fa-exclamation-circle me-1"></i>
+                            {{ form.file.errors.0 }}
+                        </div>
+                    {% endif %}
+                    {% if form.instance and form.instance.pk %}
+                    <!-- [FIX-FILENAME-LINK-TO-DOWNLOAD] Forzar que el enlace del nombre del archivo use la vista de descarga -->
+                    <script>
+                    document.addEventListener('DOMContentLoaded', function () {
+                        var container = document.getElementById('file-field-container');
+                        if (!container) return;
+                        var link = container.querySelector('a[href]');
+                        if (!link) return;
+                        link.href = "{% url 'documents:download' form.instance.id %}";
+                        link.target = "_blank";
+                        link.rel = "noopener";
+                    });
+                    </script>
+                    {% endif %}
+                </div>
+                <div class="mb-3">
+                    {{ form.description.label_tag }}
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                        <div class="text-danger small mt-1">
+                            <i class="fas fa-exclamation-circle me-1"></i>
+                            {{ form.description.errors.0 }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="mb-3">
+                    {{ form.category.label_tag }}
+                    {{ form.category }}
+                    {% if form.category.errors %}
+                        <div class="text-danger small mt-1">
+                            <i class="fas fa-exclamation-circle me-1"></i>
+                            {{ form.category.errors.0 }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="d-flex justify-content-end">
+                    <a href="{% url 'documents:document_list' %}" class="btn btn-outline-secondary me-2">Cancelar</a>
+                    <button type="submit" class="btn btn-warning text-dark">
+                        <i class="fas fa-upload me-1"></i> Subir documento
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,63 @@
+{% extends "core/base_dashboard.html" %}
+{% load static %}
+
+{% block title %}{% if edit %}Editar Documento{% else %}Subir Documento{% endif %} - VEA Connect{% endblock %}
+
+{% block content %}
+<div class="container mt-4" style="font-family: 'Roboto', sans-serif; max-width: 700px;">
+    <div class="card shadow">
+        <div class="card-header {% if edit %}bg-primary text-white{% else %}bg-warning text-dark{% endif %} d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                {% if edit %}<i class="fas fa-edit me-2"></i>Editar documento{% else %}<i class="fas fa-upload me-2"></i>Sube aquí tus documentos{% endif %}
+            </h5>
+        </div>
+        <div class="card-body">
+            <!-- DEBUG: Mostrar valor de 'edit' -->
+            <div class="alert alert-info mb-3">DEBUG: edit = {{ edit }}</div>
+            <form method="POST" enctype="multipart/form-data">
+                {% csrf_token %}
+                {{ form.non_field_errors }}
+                <div class="mb-3">
+                    {{ form.title.label_tag }}
+                    {{ form.title }}
+                    {% if form.title.errors %}
+                        <div class="text-danger">{{ form.title.errors }}</div>
+                    {% endif %}
+                </div>
+                <div class="mb-3">
+                    Archivo: Actualmente: {% if form.instance.file %}<a href="{{ form.instance.file.url }}" target="_blank">{{ form.instance.file.name }}</a>{% else %}No hay archivo{% endif %}<br>
+                    Modificar:
+                    {{ form.file }}
+                    {% if form.file.errors %}
+                        <div class="text-danger">{{ form.file.errors }}</div>
+                    {% endif %}
+                </div>
+                <div class="mb-3">
+                    {{ form.description.label_tag }}
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                        <div class="text-danger">{{ form.description.errors }}</div>
+                    {% endif %}
+                </div>
+                <div class="mb-3">
+                    {{ form.category.label_tag }}
+                    {{ form.category }}
+                    {% if form.category.errors %}
+                        <div class="text-danger">{{ form.category.errors }}</div>
+                    {% endif %}
+                </div>
+                <div class="d-flex justify-content-end gap-2">
+                    <a href="{% url 'documents:document_list' %}" class="btn btn-secondary">Cancelar</a>
+                    <button type="submit" class="btn {% if edit %}btn-primary{% else %}btn-warning text-dark{% endif %}">
+                        {% if edit %}
+                            <i class="fas fa-save me-1"></i> Guardar cambios
+                        {% else %}
+                            <i class="fas fa-upload me-1"></i> Subir documento
+                        {% endif %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

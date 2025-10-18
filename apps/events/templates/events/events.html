@@ -1,0 +1,67 @@
+{% extends "core/base_dashboard.html" %}
+{% load static %}
+
+{% block title %}Eventos - VEA Connect{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0">
+    <div class="row g-4">
+        <!-- Contenido principal a la izquierda -->
+        <div class="col-lg-9 mb-4 order-lg-1 order-2">
+            <div class="d-flex justify-content-between align-items-center my-4">
+                <h2 class="fw-bold d-flex align-items-center mb-0" style="color:#1a237e; text-align:left;">
+                    <i class="fa fa-calendar-alt me-2" style="color:#1a237e; font-size:1.5rem;"></i>
+                    Eventos
+                </h2>
+                <a href="{% url 'events:create' %}" class="btn" style="background-color:#1a237e; color:#fff;">
+                    <i class="fa fa-plus me-1"></i> Crear evento
+                </a>
+            </div>
+            <!-- Panel principal: listado de eventos -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <form method="get" class="mb-3 d-flex justify-content-end">
+                        <input type="text" name="q" class="form-control me-2" placeholder="Buscar por nombre..." style="max-width:250px;">
+                        <button type="submit" class="btn btn-outline-secondary"><i class="fa fa-search"></i> Buscar</button>
+                    </form>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Evento</th>
+                                    <th>Fecha</th>
+                                    <th>Hora</th>
+                                    <th>Descripción</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if events %}
+                                    {% for event in events %}
+                                    <tr>
+                                        <td>{{ event.title }}</td>
+                                        <td>{{ event.date|date:'d/m/Y' }}</td>
+                                        <td>{{ event.time|time:'H:i' }}</td>
+                                        <td>{{ event.description }}</td>
+                                        <td class="text-center">
+                                            <a href="{% url 'events:edit' event.id %}" class="btn btn-sm btn-warning me-1" title="Editar"><i class="fas fa-edit"></i></a>
+                                            <a href="{% url 'events:delete' event.id %}" class="btn btn-sm btn-danger" title="Eliminar"><i class="fas fa-trash"></i></a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="5" class="text-center">No hay eventos registrados.</td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Menú lateral derecho alineado -->
+        <!-- Eliminado: col-lg-3 con filtros -->
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,172 @@
+name: Azure Storage Fix Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+
+env:
+  PYTHON_VERSION: '3.10'
+  WEBAPP_NAME: 'vea-connect'
+  RESOURCE_GROUP: 'rg-vea-connect-dev'
+  REGION: 'centralus'
+  WEBSITES_PORT: '8000'
+  ACR_NAME: 'veaconnectacr'
+
+jobs:
+  deploy-azure-storage-fix:
+    runs-on: ubuntu-latest
+    concurrency: 
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    # 1. Checkout -----------------------------------------------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. Set up Python ------------------------------------------------------------
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    # 3. Verify current Azure dependencies ----------------------------------------
+    - name: Check current Azure dependencies
+      run: |
+        echo "=== Verificando dependencias actuales de Azure ==="
+        pip list | grep azure
+        echo ""
+        echo "=== Versión específica de azure-core ==="
+        pip show azure-core
+        echo ""
+        echo "=== Versión específica de azure-storage-blob ==="
+        pip show azure-storage-blob
+
+    # 4. Update requirements.txt with fix ----------------------------------------
+    - name: Update requirements.txt with Azure fix
+      run: |
+        echo "=== Actualizando requirements.txt con la corrección ==="
+        # Verificar que azure-core tenga la versión correcta
+        if grep -q "azure-core==" requirements.txt; then
+          sed -i 's/azure-core==.*/azure-core>=1.35.0,<2.0.0/' requirements.txt
+          echo "✅ azure-core actualizado en requirements.txt"
+        else
+          echo "⚠️ azure-core no encontrado en requirements.txt, agregando..."
+          echo "azure-core>=1.35.0,<2.0.0" >> requirements.txt
+        fi
+        
+        echo "=== Contenido actualizado de requirements.txt ==="
+        grep azure requirements.txt
+
+    # 5. Install updated dependencies --------------------------------------------
+    - name: Install updated dependencies
+      run: |
+        echo "=== Instalando dependencias actualizadas ==="
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt --force-reinstall
+        
+        echo "=== Verificando dependencias después de la actualización ==="
+        pip show azure-core
+        pip show azure-storage-blob
+
+    # 6. Verify storage service fix ----------------------------------------------
+    - name: Verify storage service fix
+      run: |
+        echo "=== Verificando corrección del servicio de almacenamiento ==="
+        python scripts/verify_storage_fix.py
+
+    # 7. Azure login ----------------------------------------------------------------
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    # 8. Build and push Docker image with fix ----------------------------------------
+    - name: Build and push Docker image with fix
+      run: |
+        # Login to Azure Container Registry
+        az acr login --name ${{ env.ACR_NAME }}
+        
+        # Set image tag with fix identifier
+        IMAGE_TAG=${{ env.ACR_NAME }}.azurecr.io/${{ env.WEBAPP_NAME }}:prod-azure-storage-fix
+        
+        # Build the Docker image
+        docker build -t $IMAGE_TAG .
+        
+        # Push the image to ACR
+        docker push $IMAGE_TAG
+        
+        echo "✅ Imagen Docker con corrección subida: $IMAGE_TAG"
+
+    # 9. Deploy to Azure Web App -----------------------------------------------------
+    - name: Deploy to Azure Web App
+      run: |
+        # Configurar para usar la nueva imagen con la corrección
+        az webapp config container set \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --docker-custom-image-name ${{ env.ACR_NAME }}.azurecr.io/${{ env.WEBAPP_NAME }}:prod-azure-storage-fix \
+          --docker-registry-server-url https://${{ env.ACR_NAME }}.azurecr.io \
+          --docker-registry-server-user $(az acr credential show --name ${{ env.ACR_NAME }} --query username -o tsv) \
+          --docker-registry-server-password $(az acr credential show --name ${{ env.ACR_NAME }} --query passwords[0].value -o tsv)
+
+        # Reiniciar la aplicación web
+        az webapp restart --name ${{ env.WEBAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }}
+        
+        echo "✅ Aplicación web reiniciada con la corrección"
+
+    # 10. Wait for deployment and verify --------------------------------------------
+    - name: Wait for deployment and verify
+      run: |
+        echo "=== Esperando que la aplicación esté lista ==="
+        sleep 60
+        
+        echo "=== Verificando estado de la aplicación ==="
+        WEBAPP_URL="https://${{ env.WEBAPP_NAME }}.azurewebsites.net"
+        
+        # Verificar que la aplicación responde
+        for i in {1..10}; do
+          if curl -f -s "$WEBAPP_URL/health/" > /dev/null; then
+            echo "✅ Aplicación responde correctamente en: $WEBAPP_URL"
+            break
+          else
+            echo "⏳ Intento $i/10 - Esperando que la aplicación esté lista..."
+            sleep 30
+          fi
+        done
+        
+        echo "=== Información de despliegue ==="
+        echo "URL de la aplicación: $WEBAPP_URL"
+        echo "Imagen desplegada: ${{ env.ACR_NAME }}.azurecr.io/${{ env.WEBAPP_NAME }}:prod-azure-storage-fix"
+        echo "✅ Corrección de Azure Storage desplegada exitosamente"
+
+    # 11. Create deployment summary ------------------------------------------------
+    - name: Create deployment summary
+      run: |
+        echo "## 📋 Resumen del Despliegue de Corrección Azure Storage" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ✅ Cambios Aplicados:" >> $GITHUB_STEP_SUMMARY
+        echo "- Actualizada versión de azure-core a >=1.35.0,<2.0.0" >> $GITHUB_STEP_SUMMARY
+        echo "- Corregido método set_http_headers en AzureStorageService" >> $GITHUB_STEP_SUMMARY
+        echo "- Verificada compatibilidad de dependencias" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔧 Detalles Técnicos:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Problema resuelto:** TypeError con content_disposition" >> $GITHUB_STEP_SUMMARY
+        echo "- **Solución:** Uso de ContentSettings para headers HTTP" >> $GITHUB_STEP_SUMMARY
+        echo "- **Imagen desplegada:** ${{ env.ACR_NAME }}.azurecr.io/${{ env.WEBAPP_NAME }}:prod-azure-storage-fix" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🌐 URL de la Aplicación:" >> $GITHUB_STEP_SUMMARY
+        echo "https://${{ env.WEBAPP_NAME }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY

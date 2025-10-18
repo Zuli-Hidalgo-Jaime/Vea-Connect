@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}Embeddings Home{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Embeddings Management</h1>
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Create New Embedding</h5>
+                    <p class="card-text">Create a new embedding for text analysis.</p>
+                    <a href="{% url 'embeddings:create' %}" class="btn btn-primary">Create Embedding</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">View Embeddings</h5>
+                    <p class="card-text">Browse and manage existing embeddings.</p>
+                    <a href="{% url 'embeddings:list' %}" class="btn btn-secondary">View All</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

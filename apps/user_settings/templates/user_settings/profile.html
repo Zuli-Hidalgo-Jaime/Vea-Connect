@@ -1,0 +1,73 @@
+{% extends 'core/base_dashboard.html' %}
+{% load static %}
+
+{% block title %}Configuración{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0">
+    <div class="row g-4 justify-content-center">
+        <div class="col-lg-8 col-md-10 col-12">
+            <div class="my-4">
+                <h2 class="fw-bold d-flex align-items-center mb-4" style="color:#1a237e; text-align:left;">
+                    <i class="fa fa-cog me-2" style="color:#1a237e; font-size:1.5rem;"></i>
+                    Configuración
+                </h2>
+            </div>
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                    <form method="post" class="row g-3 needs-validation" novalidate>
+                        {% csrf_token %}
+                        <div class="col-md-6">
+                            <label for="id_first_name" class="form-label">Nombre</label>
+                            {{ form.first_name }}
+                            {% if form.first_name.errors %}
+                                <div class="invalid-feedback d-block">{{ form.first_name.errors }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="id_last_name" class="form-label">Apellido</label>
+                            {{ form.last_name }}
+                            {% if form.last_name.errors %}
+                                <div class="invalid-feedback d-block">{{ form.last_name.errors }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="id_email" class="form-label">Correo electrónico</label>
+                            {{ form.email }}
+                            {% if form.email.errors %}
+                                <div class="invalid-feedback d-block">{{ form.email.errors }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6"></div>
+                        <div class="col-md-6">
+                            <label for="id_current_password" class="form-label">Contraseña actual</label>
+                            {{ form.current_password }}
+                            {% if form.current_password.errors %}
+                                <div class="invalid-feedback d-block">{{ form.current_password.errors }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label for="id_new_password" class="form-label">Nueva contraseña</label>
+                            {{ form.new_password }}
+                            {% if form.new_password.errors %}
+                                <div class="invalid-feedback d-block">{{ form.new_password.errors }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-12 d-flex justify-content-center mt-3">
+                            <button type="submit" class="btn" style="background-color:#1a237e; color:#fff; margin-right: 10px;">Guardar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

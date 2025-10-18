@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Donaciones{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Donaciones</h1>
+        <a href="{% url 'donations:create' %}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Nueva Donación
+        </a>
+    </div>
+
+    {% if messages %}
+    <div class="messages">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-body">
+            {% if donations %}
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Título</th>
+                            <th>Tipo</th>
+                            <th>Entidad</th>
+                            <th>Método</th>
+                            <th>Ubicación</th>
+                            <th>Fecha</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for donation in donations %}
+                        <tr>
+                            <td>{{ donation.title }}</td>
+                            <td>{{ donation.donation_type.name }}</td>
+                            <td>{{ donation.entity }}</td>
+                            <td>{{ donation.method }}</td>
+                            <td>{{ donation.location }}</td>
+                            <td>{{ donation.created_at|date:"d/m/Y H:i" }}</td>
+                            <td>
+                                <a href="{% url 'donations:detail' donation.pk %}" class="btn btn-sm btn-info">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                <a href="{% url 'donations:update' donation.pk %}" class="btn btn-sm btn-warning">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                                <a href="{% url 'donations:delete' donation.pk %}" class="btn btn-sm btn-danger">
+                                    <i class="fas fa-trash"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                No hay donaciones registradas.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %} 

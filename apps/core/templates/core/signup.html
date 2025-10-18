@@ -1,0 +1,47 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Registrarse - VEA Connect{% endblock %}
+
+{% block form_title %}Crear una cuenta{% endblock %}
+
+{% block form_content %}
+<form method="post" action="">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="form-group">
+        {{ form.email.label_tag }}
+        <input type="email" name="email" class="form-control" placeholder="Correo electrónico" required value="{{ form.email.value|default:'' }}">
+        {{ form.email.errors }}
+    </div>
+    <div class="form-group">
+        {{ form.first_name.label_tag }}
+        <input type="text" name="first_name" class="form-control" placeholder="Nombre" required value="{{ form.first_name.value|default:'' }}">
+        {{ form.first_name.errors }}
+    </div>
+    <div class="form-group">
+        {{ form.last_name.label_tag }}
+        <input type="text" name="last_name" class="form-control" placeholder="Apellidos" required value="{{ form.last_name.value|default:'' }}">
+        {{ form.last_name.errors }}
+    </div>
+    <div class="form-group">
+        {{ form.username.label_tag }}
+        <input type="text" name="username" class="form-control" placeholder="Nombre de usuario (opcional)" value="{{ form.username.value|default:'' }}">
+        {{ form.username.errors }}
+    </div>
+    <div class="form-group">
+        {{ form.password1.label_tag }}
+        <input type="password" name="password1" class="form-control" placeholder="Contraseña" required>
+        {{ form.password1.errors }}
+    </div>
+    <div class="form-group">
+        {{ form.password2.label_tag }}
+        <input type="password" name="password2" class="form-control" placeholder="Confirmar contraseña" required>
+        {{ form.password2.errors }}
+    </div>
+    <button type="submit" class="btn btn-primary btn-block">Registrarse</button>
+</form>
+{% endblock %}
+
+{% block form_footer %}
+<p>¿Ya tienes cuenta? <a href="{% url 'core:login' %}">Inicia sesión aquí</a>.</p>
+{% endblock %} 

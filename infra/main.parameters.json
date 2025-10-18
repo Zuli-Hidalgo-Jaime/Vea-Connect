@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "projectName": {
+      "value": "vea"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "vmSize": {
+      "value": "Standard_B2s"
+    },
+    "postgresAdminPassword": {
+      "value": "VeaPostgres2024!@#"
+    },
+    "redisPassword": {
+      "value": "VeaRedis2024!@#"
+    },
+    "djangoSecretKey": {
+      "value": "django-insecure-vea-secret-key-2024-change-this-in-production"
+    },
+    "vmAdminUsername": {
+      "value": "azureuser"
+    }
+  }
+}

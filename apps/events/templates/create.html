@@ -1,0 +1,88 @@
+{% extends "core/base_dashboard.html" %}
+{% load static %}
+
+{% block title %}{% if edit %}Editar Evento{% else %}Agregar Evento{% endif %} - VEA Connect{% endblock %}
+
+{% block extra_head %}
+<!-- Flatpickr CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4" style="font-family: 'Roboto', sans-serif; max-width: 700px;">
+    <div class="card shadow">
+        <div class="card-header {% if edit %}bg-primary text-white{% else %}bg-warning text-dark{% endif %} d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                {% if edit %}<i class="fas fa-edit me-2"></i>Editar evento{% else %}<i class="fas fa-calendar-plus me-2"></i>Agregar evento{% endif %}
+            </h5>
+        </div>
+        <div class="card-body">
+            <form method="POST">
+                {% csrf_token %}
+                {{ form.non_field_errors }}
+                <div class="mb-3">
+                    {{ form.title.label_tag }}
+                    {{ form.title }}
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        {{ form.date.label_tag }}
+                        <div class="input-group">
+                            {{ form.date }}
+                            <span class="input-group-text" style="cursor:pointer;" onclick="document.getElementById('id_date')._flatpickr.open();">
+                                <i class="fa fa-calendar"></i>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        {{ form.time.label_tag }}
+                        <div class="input-group">
+                            {{ form.time }}
+                            <span class="input-group-text" style="cursor:pointer;" onclick="document.getElementById('id_time')._flatpickr.open();">
+                                <i class="fa fa-clock"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    {{ form.location.label_tag }}
+                    {{ form.location }}
+                </div>
+                <div class="mb-3">
+                    {{ form.description.label_tag }}
+                    {{ form.description }}
+                </div>
+                <div class="d-flex justify-content-end mt-4">
+                    <a href="{% url 'events:events' %}" class="btn btn-outline-secondary me-2">
+                        <i class="fas fa-times me-1"></i> Cancelar
+                    </a>
+                    <button type="submit" class="btn {% if edit %}btn-primary{% else %}btn-warning text-dark{% endif %}">
+                        <i class="fas fa-save me-1"></i> {% if edit %}Guardar cambios{% else %}Guardar{% endif %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Flatpickr JS -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    flatpickr("#id_date", {
+        dateFormat: "Y-m-d",
+        allowInput: true,
+        locale: "es"
+    });
+    flatpickr("#id_time", {
+        enableTime: true,
+        noCalendar: true,
+        dateFormat: "H:i",
+        time_24hr: true,
+        allowInput: true
+    });
+});
+</script>
+{% endblock %}

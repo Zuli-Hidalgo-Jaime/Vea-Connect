@@ -1,0 +1,132 @@
+{% extends "core/base_dashboard.html" %}
+
+{% block title %}Lista de Donaciones - Vea Connect{% endblock %}
+
+{% block content %}
+<section class="container mt-4" style="font-family: 'Roboto', sans-serif;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h4">
+            <i class="fas fa-hand-holding-heart text-success me-2"></i>
+            Donaciones
+        </h1>
+        <a href="{% url 'donations:create' %}" class="btn btn-success">
+            <i class="fas fa-plus-circle me-1"></i> Nueva Donación
+        </a>
+    </div>
+
+    <div class="card shadow">
+        <div class="card-header bg-light">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h5 class="mb-0">Donaciones Registradas</h5>
+                </div>
+                <div class="col-md-4">
+                    <form method="get" action="" class="input-group" role="search">
+                        <input type="text" name="q" class="form-control" placeholder="Buscar donaciones...">
+                        <button class="btn btn-outline-secondary" type="submit" title="Buscar">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">Título</th>
+                            <th scope="col">Tipo</th>
+                            <th scope="col">Entidad</th>
+                            <th scope="col">Ubicación</th>
+                            <th scope="col">Monto</th>
+                            <th scope="col">Creada por</th>
+                            <th scope="col">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for donation in donations %}
+                        <tr>
+                            <td>{{ donation.title|default:donation.get_donation_type_display }}</td>
+                            <td>
+                                <span class="badge {% if donation.donation_type == 'monetaria' %}bg-success
+                                    {% elif donation.donation_type == 'especie' %}bg-info
+                                    {% elif donation.donation_type == 'medicamentos' %}bg-warning text-dark
+                                    {% elif donation.donation_type == 'voluntariado' %}bg-primary
+                                    {% else %}bg-secondary{% endif %}">
+                                    {{ donation.get_donation_type_display }}
+                                </span>
+                            </td>
+                            <td>{{ donation.entity }}</td>
+                            <td>{{ donation.location }}</td>
+                            <td>
+                                {% if donation.amount %}
+                                    ${{ donation.amount|floatformat:2 }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>{{ donation.created_by.username }}</td>
+                            <td>
+                                <a href="#" class="btn btn-sm btn-outline-primary" title="Ver detalles">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                <a href="#" class="btn btn-sm btn-outline-warning" title="Editar">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-4">
+                                <i class="fas fa-inbox fa-2x mb-2"></i>
+                                <p class="mb-0">No hay donaciones registradas</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if donations.has_other_pages %}
+            <nav aria-label="Paginación de donaciones">
+                <ul class="pagination justify-content-center mt-4">
+                    {% if donations.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ donations.previous_page_number }}" aria-label="Anterior">
+                            <span aria-hidden="true">&laquo;</span>
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">&laquo;</span>
+                    </li>
+                    {% endif %}
+
+                    {% for num in donations.paginator.page_range %}
+                        {% if donations.number == num %}
+                        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                        {% else %}
+                        <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if donations.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ donations.next_page_number }}" aria-label="Siguiente">
+                            <span aria-hidden="true">&raquo;</span>
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">&raquo;</span>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}

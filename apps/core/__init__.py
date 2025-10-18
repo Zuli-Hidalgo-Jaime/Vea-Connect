@@ -1,0 +1,1 @@
+# Core app for veaconnect project 

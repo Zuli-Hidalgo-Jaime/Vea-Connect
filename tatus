@@ -1,0 +1,165 @@
+[1mdiff --git a/Makefile b/Makefile[m
+[1mnew file mode 100644[m
+[1mindex 0000000..33f1bc4[m
+[1m--- /dev/null[m
+[1m+++ b/Makefile[m
+[36m@@ -0,0 +1,72 @@[m
+[32m+[m[32m# Makefile - VEA Connect Platform[m
+[32m+[m[32m# Fase: Baseline y control de cambios (solo diagnóstico)[m
+[32m+[m
+[32m+[m[32m# Variables de entorno[m
+[32m+[m[32mPYTHON = python[m
+[32m+[m[32mDJANGO_MANAGE = python manage.py[m
+[32m+[m[32mFUNCTIONS_DIR = functions[m
+[32m+[m
+[32m+[m[32m# Targets comentados para la fase de diagnóstico[m
+[32m+[m[32m# Estos targets se implementarán en fases posteriores[m
+[32m+[m
+[32m+[m[32m# Health checks de la plataforma[m
+[32m+[m[32m# make health[m
+[32m+[m[32m# 	- Verificar conectividad a Azure Storage[m
+[32m+[m[32m# 	- Verificar conectividad a Azure AI Search[m
+[32m+[m[32m# 	- Verificar conectividad a Redis[m
+[32m+[m[32m# 	- Verificar conectividad a Azure OpenAI[m
+[32m+[m[32m# 	- Ejecutar health checks de Django[m
+[32m+[m[32m# 	- Ejecutar health checks de Azure Functions[m
+[32m+[m
+[32m+[m[32m# Pipeline de ingesta de documentos[m
+[32m+[m[32m# make ingest[m
+[32m+[m[32m# 	- Procesar documentos pendientes[m
+[32m+[m[32m# 	- Generar embeddings[m
+[32m+[m[32m# 	- Indexar en Azure AI Search[m
+[32m+[m[32m# 	- Verificar integridad de datos[m
+[32m+[m
+[32m+[m[32m# Búsqueda semántica con consulta específica[m
+[32m+[m[32m# make search Q="consulta de ejemplo"[m
+[32m+[m[32m# 	- Ejecutar búsqueda vectorial[m
+[32m+[m[32m# 	- Ejecutar búsqueda híbrida[m
+[32m+[m[32m# 	- Mostrar resultados con scores[m
+[32m+[m[32m# 	- Medir latencia de búsqueda[m
+[32m+[m
+[32m+[m[32m# Limpieza de datos huérfanos (modo dry-run por defecto)[m
+[32m+[m[32m# make cleanup --dry-run[m
+[32m+[m[32m# 	- Detectar blobs huérfanos[m
+[32m+[m[32m# 	- Detectar registros rotos[m
+[32m+[m[32m# 	- Detectar claves Redis obsoletas[m
+[32m+[m[32m# 	- Generar reporte de limpieza[m
+[32m+[m
+[32m+[m[32m# Suite completa de tests[m
+[32m+[m[32m# make test-all[m
+[32m+[m[32m# 	- Tests unitarios[m
+[32m+[m[32m# 	- Tests de integración[m
+[32m+[m[32m# 	- Tests E2E[m
+[32m+[m[32m# 	- Cobertura de código[m
+[32m+[m
+[32m+[m[32m# Target por defecto[m
+[32m+[m[32m.PHONY: help[m
+[32m+[m[32mhelp:[m
+[32m+[m	[32m@echo "VEA Connect Platform - Makefile"[m
+[32m+[m	[32m@echo "================================="[m
+[32m+[m	[32m@echo ""[m
+[32m+[m	[32m@echo "Targets disponibles (comentados para fase de diagnóstico):"[m
+[32m+[m	[32m@echo "  # make health          - Health checks de la plataforma"[m
+[32m+[m	[32m@echo "  # make ingest          - Pipeline de ingesta de documentos"[m
+[32m+[m	[32m@echo "  # make search Q=\"...\"   - Búsqueda semántica"[m
+[32m+[m	[32m@echo "  # make cleanup         - Limpieza de datos huérfanos"[m
+[32m+[m	[32m@echo "  # make test-all        - Suite completa de tests"[m
+[32m+[m	[32m@echo ""[m
+[32m+[m	[32m@echo "Nota: Estos targets están comentados durante la fase de diagnóstico."[m
+[32m+[m	[32m@echo "Se implementarán en fases posteriores de hardening."[m
+[32m+[m
+[32m+[m[32m# Target para mostrar estado actual[m
+[32m+[m[32m.PHONY: status[m
+[32m+[m[32mstatus:[m
+[32m+[m	[32m@echo "Estado de la plataforma:"[m
+[32m+[m	[32m@echo "- Rama actual: $(shell git branch --show-current)"[m
+[32m+[m	[32m@echo "- Archivos de diagnóstico: docs/diagnostico/"[m
+[32m+[m	[32m@echo "- Scripts de health: scripts/health/"[m
+[32m+[m	[32m@echo "- Parches sugeridos: parches_sugeridos/"[m
+[1mdiff --git a/apps/documents/views.py b/apps/documents/views.py[m
+[1mindex f9cce8e..d72d0a3 100644[m
+[1m--- a/apps/documents/views.py[m
+[1m+++ b/apps/documents/views.py[m
+[36m@@ -7,7 +7,7 @@[m [mfrom django.contrib.auth.decorators import login_required[m
+ from .models import Document[m
+ import mimetypes[m
+ import datetime[m
+[31m-from django.http import HttpResponseRedirect, FileResponse, Http404, HttpResponse[m
+[32m+[m[32mfrom django.http import HttpResponseRedirect, FileResponse, Http404, HttpResponse, JsonResponse[m
+ from django.db import models[m
+ from django.db.models import Q[m
+ from django.conf import settings[m
+[36m@@ -15,6 +15,8 @@[m [mimport logging[m
+ import requests[m
+ from functools import reduce[m
+ from services.storage_service import azure_storage[m
+[32m+[m[32mimport os[m
+[32m+[m[32mfrom pathlib import Path[m
+ [m
+ logger = logging.getLogger(__name__)[m
+ [m
+[36m@@ -185,84 +187,332 @@[m [mdef delete_document(request, pk):[m
+ [m
+ @login_required[m
+ def download_document(request, pk):[m
+[31m-    document = get_object_or_404(Document, pk=pk)[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Descarga un documento con soporte para Azure Blob Storage y FileSystemStorage.[m
+     [m
+[31m-    # Verificar si el documento tiene archivo[m
+[31m-    if not document.file:[m
+[31m-        messages.error(request, f"El documento '{document.title}' no tiene un archivo asociado.")[m
+[31m-        return redirect('documents:document_list')[m
+[32m+[m[32m    Args:[m
+[32m+[m[32m        request: HttpRequest object[m
+[32m+[m[32m        pk: Primary key del documento[m
+[32m+[m[41m        [m
+[32m+[m[32m    Returns:[m
+[32m+[m[32m        HttpResponse: FileResponse para archivos locales o redirect para Azure[m
+[32m+[m[32m        JsonResponse: En caso de error con detalles específicos[m
+[32m+[m[32m    """[m
+[32m+[m[32m    logger.info(f"Iniciando descarga del documento con pk: {pk}")[m
+     [m
+     try:[m
+[31m-        # Generar URL de descarga firmada[m
+[31m-        storage_service = azure_storage[m
+[31m-        [m
+[31m-        # Intentar encontrar el archivo con diferentes nombres posibles[m
+[31m-        possible_filenames = [[m
+[31m-            document.file.name,  # Nombre actual en la base de datos[m
+[31m-            f"documents/{document.file.name}",  # Con prefijo documents/[m
+[31m-            f"documents/{document.title}.{document.file_type}" if document.file_type else None,  # Basado en título[m
+[31m-        ][m
+[31m-        [m
+[31m-        # Filtrar nombres None[m
+[31m-        possible_filenames = [f for f in possible_filenames if f][m
+[31m-        [m
+[31m-        # Buscar el archivo en el storage[m
+[31m-        found_filename = None[m
+[31m-        [m
+[31m-        # Primero buscar por patrón si hay título[m
+[31m-        if document.title:[m
+[31m-            # Buscar sin prefijo documents/ primero[m
+[31m-            title_prefix = document.title[m
+[31m-            list_result = storage_service.list_blobs(name_starts_with=title_prefix)[m
+[31m-            if list_result.get('success') and list_result.get('blobs'):[m
+[31m-                # Tomar el archivo más reciente (último de la lista)[m
+[31m-                matching_blobs = list_result.get('blobs', [])[m
+[31m-                if matching_blobs:[m
+[31m-                    found_filename = matching_blobs[-1]['name'][m
+[31m-                    logger.info(f"Archivo encontrado por patrón (más reciente): {found_filename}")[m
+[31m-            else:[m
+[31m-                # Si no encuentra, buscar con prefijo documents/[m
+[31m-                title_prefix = f"documents/{document.title}"[m
+[31m-                list_result = storage_service.list_blobs(name_starts_with=title_prefix)[m
+[31m-                if list_result.get('success') and list_result.get('blobs'):[m
+[31m-                    # Tomar el archivo más reciente (último de la lista)[m
+[31m-                    matching_blobs = list_result.get('blobs', [])[m
+[31m-                    if matching_blobs:[m
+[31m-                        found_filename = matching_blobs[-1]['name'][m
+[31m-                        logger.info(f"Archivo encontrado por patrón con prefijo (más reciente): {found_filename}")[m
+[31m-        [m
+[31m-        # Si no se encontró por patrón, buscar con nombres exactos[m
+[31m-        if not found_filename:[m
+[31m-            for filename in possible_filenames:[m
+[31m-         

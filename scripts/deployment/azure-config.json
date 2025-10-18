@@ -1,0 +1,70 @@
+{
+  "subscription": {
+    "name": "Your Azure Subscription",
+    "id": "your-subscription-id"
+  },
+  "resourceGroup": {
+    "name": "vea-resource-group",
+    "location": "eastus"
+  },
+  "appService": {
+    "plan": {
+      "name": "vea-app-service-plan",
+      "sku": "B1",
+      "os": "Linux"
+    },
+    "webapp": {
+      "name": "vea-webapp-process-botconnect",
+      "runtime": "PYTHON|3.10"
+    }
+  },
+  "database": {
+    "server": {
+      "name": "vea-postgresql-server",
+      "adminUser": "vea_admin",
+      "version": "13",
+      "sku": "Standard_B1ms"
+    },
+    "database": {
+      "name": "vea_database"
+    }
+  },
+  "storage": {
+    "account": {
+      "name": "veastorageaccount",
+      "sku": "Standard_LRS",
+      "kind": "StorageV2"
+    },
+    "containers": [
+      "static",
+      "media", 
+      "documents"
+    ]
+  },
+  "vm": {
+    "name": "vea-redis-vm",
+    "size": "Standard_B2s",
+    "image": "UbuntuLTS",
+    "adminUser": "azureuser"
+  },
+  "keyVault": {
+    "name": "vea-key-vault",
+    "sku": "Standard"
+  },
+  "environmentVariables": {
+    "DEBUG": "False",
+    "DB_PORT": "5432",
+    "AZURE_REDIS_CONNECTIONSTRING": "6379",
+    "AZURE_REDIS_CONNECTIONSTRING": "0"
+  },
+  "ports": {
+    "redis": 6379,
+    "redisInsight": 8001,
+    "ssh": 22
+  },
+  "tags": {
+    "project": "vea-webapp-process-botconnect",
+    "environment": "production",
+    "managedBy": "azure-cli"
+  }
+} 

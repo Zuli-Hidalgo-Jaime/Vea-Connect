@@ -1,0 +1,74 @@
+{% extends "core/base.html" %}
+
+{% block title %}Crear Nueva Donación - Vea Connect{% endblock %}
+
+{% block content %}
+<div class="container mt-4" style="font-family: 'Roboto', sans-serif;">
+    <div class="card shadow">
+        <div class="card-header bg-success text-white">
+            <h2 class="mb-0">
+                <i class="fas fa-hand-holding-heart me-2"></i>Registrar Nueva Donación
+            </h2>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{% url 'donations:create' %}">
+                {% csrf_token %}
+                
+                <div class="mb-3">
+                    <label for="title" class="form-label">Título de la donación</label>
+                    <input type="text" class="form-control" id="title" name="title" required>
+                    <div class="form-text">Ej: Ayuda para niños de la comunidad</div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="donation_type" class="form-label">Tipo de donación</label>
+                        <select class="form-select" id="donation_type" name="donation_type" required>
+                            <option value="">Seleccione un tipo</option>
+                            <option value="monetaria">Monetaria</option>
+                            <option value="especie">En especie</option>
+                            <option value="medicamentos">Medicamentos</option>
+                            <option value="voluntariado">Voluntariado</option>
+                            <option value="otros">Otros</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="amount" class="form-label">Monto (opcional)</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="number" class="form-control" id="amount" name="amount" step="0.01" min="0">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="location" class="form-label">Ubicación</label>
+                        <input type="text" class="form-control" id="location" name="location" required>
+                        <div class="form-text">Dónde se recibirá la donación</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="entity" class="form-label">Entidad receptora</label>
+                        <input type="text" class="form-control" id="entity" name="entity" required>
+                        <div class="form-text">Organización que recibirá la donación</div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="description" class="form-label">Descripción adicional</label>
+                    <textarea class="form-control" id="description" name="description" rows="3" placeholder="Detalles sobre la donación, necesidades específicas, etc."></textarea>
+                </div>
+                
+                <div class="d-flex justify-content-end mt-4">
+                    <a href="{% url 'donations:list' %}" class="btn btn-outline-secondary me-2">
+                        <i class="fas fa-times me-1"></i> Cancelar
+                    </a>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-save me-1"></i> Registrar Donación
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,185 @@
+name: Swap STAGING -> PROD
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_swap:
+        description: 'Confirm swap to production (type "YES" to confirm)'
+        required: true
+        type: string
+      rollback_on_failure:
+        description: 'Automatically rollback if health check fails'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  WEBAPP_NAME: 'vea-connect'
+  STAGING_SLOT: 'staging'
+  RESOURCE_GROUP: 'rg-vea-connect-dev'
+
+jobs:
+  swap-staging-to-prod:
+    runs-on: ubuntu-latest
+    concurrency: 
+      group: production-swap
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    # 1. Validation --------------------------------------------------------------
+    - name: Validate confirmation
+      run: |
+        if [ "${{ inputs.confirm_swap }}" != "YES" ]; then
+          echo "❌ Swap not confirmed. Please type 'YES' to confirm."
+          exit 1
+        fi
+        echo "✅ Swap confirmed"
+
+    # 2. Checkout ---------------------------------------------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 3. Azure login ------------------------------------------------------------
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    # 4. Pre-swap health check on staging ---------------------------------------
+    - name: Pre-swap Staging Health Check
+      run: |
+        STAGING_URL="https://${{ env.WEBAPP_NAME }}-${{ env.STAGING_SLOT }}.azurewebsites.net"
+        echo "Checking staging health before swap..."
+        
+        # Health check
+        HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$STAGING_URL/health" || echo "000")
+        
+        if [ "$HEALTH_RESPONSE" != "200" ]; then
+          echo "❌ Staging health check failed: HTTP $HEALTH_RESPONSE"
+          echo "Cannot proceed with swap - staging is not healthy"
+          exit 1
+        fi
+        
+        echo "✅ Staging health check passed"
+
+    # 5. Pre-swap health check on production ------------------------------------
+    - name: Pre-swap Production Health Check
+      run: |
+        PROD_URL="https://${{ env.WEBAPP_NAME }}.azurewebsites.net"
+        echo "Checking production health before swap..."
+        
+        # Health check
+        HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_URL/health" || echo "000")
+        
+        if [ "$HEALTH_RESPONSE" != "200" ]; then
+          echo "⚠️ Production health check failed: HTTP $HEALTH_RESPONSE"
+          echo "Proceeding with swap anyway..."
+        else
+          echo "✅ Production health check passed"
+        fi
+
+    # 6. Perform swap -----------------------------------------------------------
+    - name: Swap Staging to Production
+      run: |
+        echo "🔄 Starting swap: staging -> production"
+        
+        # Perform the swap
+        az webapp deployment slot swap \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --slot ${{ env.STAGING_SLOT }} \
+          --target-slot production
+        
+        echo "✅ Swap completed"
+        
+        # Wait for swap to propagate
+        echo "Waiting for swap to propagate..."
+        sleep 30
+
+    # 7. Post-swap health check on production -----------------------------------
+    - name: Post-swap Production Health Check
+      run: |
+        PROD_URL="https://${{ env.WEBAPP_NAME }}.azurewebsites.net"
+        echo "Checking production health after swap..."
+        
+        # Multiple health checks with retry
+        for i in {1..5}; do
+          echo "Health check attempt $i/5..."
+          HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_URL/health" || echo "000")
+          
+          if [ "$HEALTH_RESPONSE" = "200" ]; then
+            echo "✅ Production health check passed on attempt $i"
+            break
+          else
+            echo "⚠️ Health check attempt $i failed: HTTP $HEALTH_RESPONSE"
+            if [ $i -lt 5 ]; then
+              echo "Retrying in 10 seconds..."
+              sleep 10
+            fi
+          fi
+        done
+        
+        # Final check
+        if [ "$HEALTH_RESPONSE" != "200" ]; then
+          echo "❌ Production health check failed after all attempts"
+          echo "HEALTH_CHECK_FAILED=true" >> $GITHUB_ENV
+        else
+          echo "HEALTH_CHECK_FAILED=false" >> $GITHUB_ENV
+        fi
+
+    # 8. Rollback if health check failed ----------------------------------------
+    - name: Rollback on Health Check Failure
+      if: ${{ env.HEALTH_CHECK_FAILED == 'true' && inputs.rollback_on_failure }}
+      run: |
+        echo "🔄 Rolling back due to health check failure..."
+        
+        # Swap back: production -> staging
+        az webapp deployment slot swap \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --slot production \
+          --target-slot ${{ env.STAGING_SLOT }}
+        
+        echo "✅ Rollback completed"
+        
+        # Wait for rollback to propagate
+        sleep 30
+        
+        # Verify rollback
+        PROD_URL="https://${{ env.WEBAPP_NAME }}.azurewebsites.net"
+        HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$PROD_URL/health" || echo "000")
+        
+        if [ "$HEALTH_RESPONSE" = "200" ]; then
+          echo "✅ Rollback verification passed"
+        else
+          echo "⚠️ Rollback verification failed: HTTP $HEALTH_RESPONSE"
+        fi
+
+    # 9. Final status report ----------------------------------------------------
+    - name: Final Status Report
+      run: |
+        PROD_URL="https://${{ env.WEBAPP_NAME }}.azurewebsites.net"
+        STAGING_URL="https://${{ env.WEBAPP_NAME }}-${{ env.STAGING_SLOT }}.azurewebsites.net"
+        
+        echo "📊 Final Status Report"
+        echo "======================"
+        echo "Production URL: $PROD_URL"
+        echo "Staging URL: $STAGING_URL"
+        
+        if [ "${{ env.HEALTH_CHECK_FAILED }}" = "true" ]; then
+          if [ "${{ inputs.rollback_on_failure }}" = "true" ]; then
+            echo "❌ Swap failed - rolled back to previous production"
+            echo "Please investigate staging issues before retrying"
+          else
+            echo "❌ Swap completed but production health check failed"
+            echo "Manual intervention may be required"
+          fi
+        else
+          echo "✅ Swap completed successfully"
+          echo "Production is healthy and serving traffic"
+        fi

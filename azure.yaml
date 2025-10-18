@@ -1,0 +1,26 @@
+# Azure App Service Configuration
+# Forzar Python 3.10 para evitar conflictos de dependencias
+
+name: veaconnect-webapp-prod
+metadata:
+  template: python-app-service@0.0.1-beta
+
+services:
+  web:
+    project: .
+    language: py
+    host: appservice
+    hooks:
+      prebuild:
+        shell: sh
+        run: |
+          echo "=== FORZANDO PYTHON 3.10 ==="
+          python3.10 --version || python3 --version
+          echo "Python version check completed"
+      
+      postbuild:
+        shell: sh
+        run: |
+          echo "=== INSTALANDO DEPENDENCIAS ==="
+          pip3.10 install -r requirements.txt || pip3 install -r requirements.txt
+          echo "Dependencies installed" 

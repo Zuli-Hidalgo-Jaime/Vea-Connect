@@ -1,0 +1,5 @@
+[33m388dd1a[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdevops/staging-slot-pipeline[m[33m, [m[1;31morigin/devops/staging-slot-pipeline[m[33m)[m CI: staging slot + flags + smoke
+[33m410cebf[m[33m ([m[1;32mhardening/apply-cache-layer[m[33m)[m A4: Implementar cache layer Redis con graceful degradation y namespacing
+[33ma8a3820[m[33m ([m[1;32mhardening/apply-log-sanitization[m[33m)[m Añadir resumen de implementación de saneamiento de logs
+[33md487150[m A3 - Seguridad: Aplicar saneamiento de logs y protección de PII
+[33m52a21fd[m[33m ([m[1;31morigin/hardening/baseline-diagnostics[m[33m, [m[1;32mhardening/baseline-diagnostics[m[33m)[m feat: Baseline diagnostics phase - templates and structure

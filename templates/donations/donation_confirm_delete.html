@@ -1,0 +1,31 @@
+{% extends 'core/base_dashboard.html' %}
+{% load static %}
+
+{% block title %}Eliminar Donación{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0">
+    <div class="row g-4">
+        <div class="col-lg-9 mb-4 order-lg-1 order-2">
+            <div class="my-4">
+                <h2 class="fw-bold d-flex align-items-center mb-4" style="color:#1a237e; text-align:left;">
+                    <i class="fa fa-trash me-2" style="color:#1a237e; font-size:1.5rem;"></i>
+                    Eliminar Donación
+                </h2>
+            </div>
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <p class="mb-4">¿Estás seguro de que deseas eliminar la donación "{{ donation.title|default:donation.donation_type.name }}"?</p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="d-flex justify-content-center">
+                            <button type="submit" class="btn btn-danger me-2">Eliminar</button>
+                            <a href="{% url 'donations:list' %}" class="btn" style="background-color:#ff9800; color:#fff;">Cancelar</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

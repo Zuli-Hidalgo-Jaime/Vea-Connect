@@ -1,0 +1,81 @@
+{% extends 'core/base.html' %}
+
+{% load static %}
+
+{% block title %}Iniciar Sesión - VEA Connect{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Ocultar el icono de revelación de contraseña predeterminado de Edge/IE */
+input[type="password"]::-ms-reveal {
+    display: none;
+}
+
+/* Para otros navegadores basados en WebKit (aunque no es un estándar) */
+input[type="password"]::-webkit-password-suffix {
+    display: none;
+}
+
+.password-toggle {
+    position: relative;
+}
+
+.password-toggle .toggle-password {
+    position: absolute;
+    top: 50%;
+    right: 18px;
+    transform: translateY(-50%);
+    cursor: pointer;
+}
+</style>
+{% endblock %}
+
+{% block form_title %}Iniciar Sesión{% endblock %}
+
+{% block form_content %}
+<form method="post" action="{% url 'core:login' %}">
+    {% csrf_token %}
+    <div class="form-group">
+        <label for="id_username">Usuario o Email</label>
+        <input type="text" name="username" id="id_username" class="form-control" placeholder="Ingresa tu usuario o email" required autofocus>
+    </div>
+    <div class="form-group password-toggle">
+        <label for="id_password">Contraseña</label>
+        <input type="password" name="password" id="id_password" class="form-control" placeholder="Ingresa tu contraseña" required>
+        <span class="toggle-password" data-target="id_password" onclick="togglePassword('id_password')">
+            <i class="fa fa-eye"></i>
+        </span>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" name="remember" id="id_remember">
+        <label for="id_remember" style="margin-bottom:0;">Recordarme</label>
+    </div>
+    <button type="submit" class="btn btn-primary">Iniciar Sesión</button>
+</form>
+<div class="form-links" style="flex-direction:column;align-items:flex-start;margin-top:1.5rem;gap:0.5rem;">
+    <a href="{% url 'core:password_reset' %}">¿Olvidaste tu contraseña?</a>
+    <div style="margin-top:0.5rem;">
+        ¿No tienes una cuenta?
+        <a href="{% url 'core:signup' %}" class="btn btn-secondary" style="margin-left:8px;">Regístrate aquí</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function togglePassword(target) {
+    const passwordInput = document.getElementById(target);
+    const icon = document.querySelector('.toggle-password i');
+    
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    } else {
+        passwordInput.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+    }
+}
+</script>
+{% endblock %}

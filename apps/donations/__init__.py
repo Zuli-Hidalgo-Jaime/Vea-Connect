@@ -1,0 +1,1 @@
+# Donations app for veaconnect project 

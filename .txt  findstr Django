@@ -1,0 +1,10 @@
+[33ma4fca0e[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Deploy Azure Functions with WhatsApp bot support
+[33m7734f26[m[33m ([m[1;31morigin/main[m[33m)[m fix: Corregir versión de Django a 5.0.5 - Cambiar Django==5.2.7 a Django==5.0.5 (versión válida) - Resolver error de instalación en deployment
+[33m16cf667[m fix: Actualizar Python a 3.10 en workflow de deployment - Cambiar PYTHON_VERSION de 3.9 a 3.10 para compatibilidad con Django 5.2.7 - Resolver error de dependencias en deployment
+[33mcd23025[m feat: Configurar variables de entorno para bot de WhatsApp - Agregar FUNCTION_APP_URL correcta - Configurar variables de Azure Communication Services - Preparar configuración para bot de WhatsApp
+[33m53e2dbc[m fix: Corregir errores en eliminación de documentos - Corregir métodos incorrectos en AzureStorageService (exists -> blob_exists, delete -> delete_blob, download_url -> get_blob_url) - Mejorar manejo de resultados de list_blobs - Agregar script de diagnóstico para pruebas de almacenamiento - Resolver error 'AzureStorageService object has no attribute exists'
+[33m44709d1[m CI/CD functions
+[33m6c30cf8[m refactor
+[33m0a48d5c[m Fix: Corregir búsqueda de archivos en Azure Storage - Buscar archivos sin prefijo documents/ primero - Buscar con prefijo documents/ como fallback - Resolver problema donde archivos están en raíz del contenedor
+[33mdf05a2b[m Fix: Mejorar descarga de documentos y crear comando específico para Azure - Crear comando fix_azure_documents para arreglar nombres en Azure - Mejorar vista de descarga para usar el archivo más reciente - Tomar el último archivo de la lista cuando hay múltiples versiones
+[33m24648d3[m Fix: Eliminar vista doble de documentos y prevenir documentos vacíos - Mejorar vista de lista para filtrar solo documentos válidos - Crear comando cleanup_empty_documents para limpiar documentos corruptos - Prevenir creación de documentos sin archivo - Filtrar documentos con título y archivo vacíos

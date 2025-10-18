@@ -1,0 +1,16 @@
+{% extends 'core/base_dashboard.html' %}
+
+{% block title %}Dashboard - VEA Connect{% endblock %}
+
+{% block content %}
+<section class="dashboard-welcome">
+    <h1>¡Bienvenido/a al Dashboard!</h1>
+    <p>Selecciona una opción para comenzar:</p>
+    <div class="dashboard-quick-actions" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 2rem; margin-top: 2.5rem;">
+        <a href="/documents/" class="quick-action" style="background: #0f1d40; color: #fff; border-radius: 16px; padding: 2.2rem 1.2rem; text-align: center; font-size: 1.2rem; font-weight: 500; text-decoration: none; box-shadow: 0 4px 16px rgba(15,29,64,0.08); transition: background 0.2s, color 0.2s, transform 0.2s; display: flex; flex-direction: column; align-items: center; gap: 1rem;"><i class="fa fa-file-alt" style="font-size: 2.2rem; color: #f58634;"></i> Documentos</a>
+        <a href="/events/" class="quick-action" style="background: #0f1d40; color: #fff; border-radius: 16px; padding: 2.2rem 1.2rem; text-align: center; font-size: 1.2rem; font-weight: 500; text-decoration: none; box-shadow: 0 4px 16px rgba(15,29,64,0.08); transition: background 0.2s, color 0.2s, transform 0.2s; display: flex; flex-direction: column; align-items: center; gap: 1rem;"><i class="fa fa-calendar-alt" style="font-size: 2.2rem; color: #f58634;"></i> Eventos</a>
+        <a href="/directory/" class="quick-action" style="background: #0f1d40; color: #fff; border-radius: 16px; padding: 2.2rem 1.2rem; text-align: center; font-size: 1.2rem; font-weight: 500; text-decoration: none; box-shadow: 0 4px 16px rgba(15,29,64,0.08); transition: background 0.2s, color 0.2s, transform 0.2s; display: flex; flex-direction: column; align-items: center; gap: 1rem;"><i class="fa fa-address-book" style="font-size: 2.2rem; color: #f58634;"></i> Directorio</a>
+        <a href="/donations/" class="quick-action" style="background: #0f1d40; color: #fff; border-radius: 16px; padding: 2.2rem 1.2rem; text-align: center; font-size: 1.2rem; font-weight: 500; text-decoration: none; box-shadow: 0 4px 16px rgba(15,29,64,0.08); transition: background 0.2s, color 0.2s, transform 0.2s; display: flex; flex-direction: column; align-items: center; gap: 1rem;"><i class="fa fa-hand-holding-heart" style="font-size: 2.2rem; color: #f58634;"></i> Donaciones</a>
+    </div>
+</section>
+{% endblock %} 

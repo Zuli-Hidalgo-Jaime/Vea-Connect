@@ -1,0 +1,25 @@
+[33mcommit 388dd1a2c892a9f991e290425caa6201f0b24592[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdevops/staging-slot-pipeline[m[33m, [m[1;31morigin/devops/staging-slot-pipeline[m[33m)[m
+Author: Your Name <you@example.com>
+Date:   Tue Aug 12 12:54:33 2025 -0600
+
+    CI: staging slot + flags + smoke
+    
+    - Crear workflow staging-deploy.yml para despliegue a staging slot
+    - Crear workflow staging-to-prod-swap.yml para swap seguro a producción
+    - Configurar feature flags por fase (A1/A3/A4/A5)
+    - Implementar smoke tests automáticos con métricas p50/p95
+    - Crear script verify_staging_deployment.py para verificaciones manuales
+    - Documentar proceso completo en STAGING_DEPLOYMENT_GUIDE.md
+    
+    Características:
+    - Despliegue a staging slot con configuración específica
+    - Feature flags automáticos según fase seleccionada
+    - Smoke tests con health check y métricas de rendimiento
+    - Swap seguro con rollback automático en caso de fallo
+    - Verificaciones manuales automatizadas
+    - Documentación completa del proceso
+
+.github/workflows/staging-deploy.yml
+.github/workflows/staging-to-prod-swap.yml
+docs/deployment/STAGING_DEPLOYMENT_GUIDE.md
+scripts/verify_staging_deployment.py

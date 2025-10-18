@@ -1,0 +1,167 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Panel administrativo de Vea Connect">
+    <meta name="author" content="Onesec AITU">
+
+    <title>{% block title %}Vea Connect{% endblock %}</title>
+
+    <link rel="icon" href="{% static 'favicon.ico' %}">
+    <link rel="stylesheet" href="{% static 'bootstrap/css/bootstrap.min.css' %}">
+    <link rel="stylesheet" href="{% static 'fontawesome/css/all.min.css' %}">
+    <style>
+        body {
+            background-color: #ffffff;
+        }
+        .sidebar {
+            height: 100vh;
+            background-color: #0f1d40;
+            padding-top: 1rem;
+            position: fixed;
+            width: 220px;
+            color: white;
+        }
+        .sidebar a {
+            color: white;
+            text-decoration: none;
+            display: block;
+            padding: 0.75rem 1.25rem;
+            transition: background 0.2s;
+        }
+        .sidebar a:hover, .sidebar a.active {
+            background-color: #1e305a;
+        }
+        .sidebar i {
+            margin-right: 10px;
+        }
+        .topbar {
+            background-color: #ffffff;
+            height: 60px;
+            padding: 0 2rem;
+            margin-left: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .topbar img {
+            height: 40px;
+        }
+        .main-content {
+            margin-left: 220px;
+            padding: 2rem;
+        }
+        @media (max-width: 991px) {
+            .sidebar {
+                position: fixed;
+                left: -220px;
+                top: 0;
+                width: 220px;
+                height: 100vh;
+                z-index: 1050;
+                transition: left 0.3s;
+            }
+            .sidebar.active {
+                left: 0;
+            }
+            .topbar {
+                margin-left: 0;
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .hamburger {
+                display: inline-block;
+                cursor: pointer;
+                margin-right: 1rem;
+            }
+        }
+        @media (min-width: 992px) {
+            .hamburger {
+                display: none;
+            }
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebarMenu">
+    <div class="text-center mb-4">
+        <img src="{% static 'images/logo-vea.png' %}" alt="Vea Logo" width="50">
+    </div>
+    <a href="{% url 'dashboard:home' %}" class="{% if request.resolver_match.app_name == 'dashboard' %}active{% endif %}">
+        <i class="fas fa-home"></i> Inicio
+    </a>
+    <a href="{% url 'documents:list' %}" class="{% if request.resolver_match.app_name == 'documents' %}active{% endif %}">
+        <i class="fas fa-file-alt"></i> Documentos
+    </a>
+    <a href="{% url 'events:list' %}" class="{% if request.resolver_match.app_name == 'events' %}active{% endif %}">
+        <i class="fas fa-calendar-alt"></i> Eventos
+    </a>
+    <a href="{% url 'directory:contact_list' %}" class="{% if request.resolver_match.app_name == 'directory' %}active{% endif %}">
+        <i class="fas fa-address-book"></i> Directorio
+    </a>
+    <a href="{% url 'donations:list' %}" class="{% if request.resolver_match.app_name == 'donations' %}active{% endif %}">
+        <i class="fas fa-hand-holding-heart"></i> Donaciones
+    </a>
+    <a href="{% url 'user_settings:profile' %}" class="{% if request.resolver_match.app_name == 'user_settings' %}active{% endif %}">
+        <i class="fas fa-cog"></i> Configuración
+    </a>
+</div>
+
+<!-- Topbar -->
+<div class="topbar">
+    <span class="hamburger" id="hamburgerBtn">
+        <i class="fas fa-bars fa-2x" style="color:#0f1d40"></i>
+    </span>
+    <div class="fw-bold text-primary">Vea <span style="color:#0f1d40">Connect</span></div>
+    <div>
+        {% if user.is_authenticated %}
+            <a href="{% url 'core:logout' %}" class="text-decoration-none">Cerrar sesión</a>
+        {% else %}
+            <a href="{% url 'core:login' %}" class="text-decoration-none">Iniciar sesión</a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Contenido principal -->
+<main class="main-content">
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {% block content %}{% endblock %}
+</main>
+
+<script src="{% static 'bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+<script>
+    // Menú hamburguesa responsivo
+    const hamburgerBtn = document.getElementById('hamburgerBtn');
+    const sidebarMenu = document.getElementById('sidebarMenu');
+    hamburgerBtn && hamburgerBtn.addEventListener('click', function() {
+        sidebarMenu.classList.toggle('active');
+    });
+    // Cierra el menú al hacer clic fuera en móvil
+    document.addEventListener('click', function(event) {
+        if (window.innerWidth <= 991) {
+            if (!sidebarMenu.contains(event.target) && !hamburgerBtn.contains(event.target)) {
+                sidebarMenu.classList.remove('active');
+            }
+        }
+    });
+</script>
+{% block extra_js %}{% endblock %}
+{% block scripts %}{% endblock %}
+{% block modals %}{% endblock %}
+</body>
+</html>

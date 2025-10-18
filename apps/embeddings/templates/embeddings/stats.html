@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}Embeddings Statistics{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Embeddings Statistics</h1>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Total Embeddings</h5>
+                    <p class="card-text display-4">{{ stats.total_embeddings|default:0 }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Active Embeddings</h5>
+                    <p class="card-text display-4">{{ stats.active_embeddings|default:0 }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="mt-4">
+        <a href="{% url 'embeddings:home' %}" class="btn btn-secondary">Back to Home</a>
+    </div>
+</div>
+{% endblock %} 

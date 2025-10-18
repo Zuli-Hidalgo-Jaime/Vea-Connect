@@ -1,0 +1,42 @@
+{
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false,
+  "reportAttributeAccessIssue": false,
+  "reportCallIssue": false,
+  "exclude": [
+    "**/migrations",
+    "**/__pycache__",
+    ".venv",
+    "venv",
+    "staticfiles",
+    "media",
+    "functions/venv310"
+  ],
+  "extraPaths": [
+    "./apps",
+    "./config",
+    "./utilities",
+    "./utils"
+  ],
+  "venv": "venv",
+  "venvPath": ".",
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "include": [
+    "apps",
+    "config",
+    "utilities",
+    "utils",
+    "tests"
+  ],
+  "ignore": [
+    "**/migrations/**",
+    "**/__pycache__/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/staticfiles/**",
+    "**/media/**",
+    "**/node_modules/**"
+  ]
+} 

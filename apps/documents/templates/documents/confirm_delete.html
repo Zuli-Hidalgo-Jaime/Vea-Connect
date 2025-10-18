@@ -1,0 +1,21 @@
+{% extends "core/base_dashboard.html" %}
+{% block title %}Eliminar documento - VEA Connect{% endblock %}
+{% block content %}
+<div class="container mt-5" style="max-width: 500px;">
+    <div class="card shadow">
+        <div class="card-header bg-danger text-white">
+            <h5 class="mb-0"><i class="fa fa-trash me-2"></i>Eliminar documento</h5>
+        </div>
+        <div class="card-body">
+            <p>¿Estás seguro que deseas eliminar el documento <strong>{{ document.title }}</strong>?</p>
+            <form method="post">
+                {% csrf_token %}
+                <div class="d-flex justify-content-end gap-2">
+                    <a href="{% url 'documents:document_list' %}" class="btn btn-secondary">Cancelar</a>
+                    <button type="submit" class="btn btn-danger">Eliminar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %} 

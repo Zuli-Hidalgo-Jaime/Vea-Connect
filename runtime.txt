@@ -1,0 +1,2 @@
+python-3.10.12
+# REQUERIDO: Python 3.10+ para compatibilidad con todas las dependencias

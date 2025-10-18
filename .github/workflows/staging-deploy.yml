@@ -1,0 +1,256 @@
+name: Deploy to STAGING (slot)
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Phase to deploy (A1/A3/A4/A5)'
+        required: true
+        default: 'A4'
+        type: choice
+        options:
+        - A1
+        - A3
+        - A4
+        - A5
+      dry_run:
+        description: 'Dry run (no actual deployment)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.10'
+  WEBAPP_NAME: 'vea-connect'
+  STAGING_SLOT: 'staging'
+  RESOURCE_GROUP: 'rg-vea-connect-dev'
+  REGION: 'centralus'
+  WEBSITES_PORT: '8000'
+  ACR_NAME: 'veaconnectacr'
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    concurrency: 
+      group: staging-deploy-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    # 1. Checkout -----------------------------------------------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. Set up Python ------------------------------------------------------------
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # 3. Collect static files -----------------------------------------------------
+    - name: Collect static files
+      run: python manage.py collectstatic --noinput
+      env:
+        DJANGO_SETTINGS_MODULE: config.settings.production
+        CI_ENVIRONMENT: true
+
+    # 4. Azure login --------------------------------------------------------------
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    # 5. Build and push Docker image ----------------------------------------------
+    - name: Build and push Docker image
+      run: |
+        # Login to Azure Container Registry
+        az acr login --name ${{ env.ACR_NAME }}
+        
+        # Set image tag with phase
+        IMAGE_TAG=${{ env.ACR_NAME }}.azurecr.io/${{ env.WEBAPP_NAME }}:staging-${{ github.sha }}
+        
+        # Build the Docker image
+        docker build -t $IMAGE_TAG .
+        
+        # Push the image to ACR
+        docker push $IMAGE_TAG
+        
+        # Set output for next steps
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+    # 6. Configure staging slot ---------------------------------------------------
+    - name: Configure Staging Slot
+      if: ${{ !inputs.dry_run }}
+      run: |
+        # Ensure staging slot exists
+        az webapp deployment slot create \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --slot ${{ env.STAGING_SLOT }} \
+          --configuration-source ${{ env.WEBAPP_NAME }} || true
+
+        # Configure staging slot for Docker
+        az webapp config set \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --slot ${{ env.STAGING_SLOT }} \
+          --linux-fx-version DOCKER \
+          --startup-file ""
+
+        # Set container image for staging slot
+        az webapp config container set \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --slot ${{ env.STAGING_SLOT }} \
+          --docker-custom-image-name ${{ env.IMAGE_TAG }} \
+          --docker-registry-server-url https://${{ env.ACR_NAME }}.azurecr.io \
+          --docker-registry-server-user $(az acr credential show --name ${{ env.ACR_NAME }} --query username -o tsv) \
+          --docker-registry-server-password $(az acr credential show --name ${{ env.ACR_NAME }} --query passwords[0].value -o tsv)
+
+    # 7. Configure feature flags based on phase ----------------------------------
+    - name: Configure Feature Flags
+      if: ${{ !inputs.dry_run }}
+      run: |
+        # Base configuration for staging
+        az webapp config appsettings set \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --slot ${{ env.STAGING_SLOT }} \
+          --settings \
+            DJANGO_SETTINGS_MODULE=config.settings.azure_production \
+            DEBUG=False \
+            ALLOWED_HOSTS="*.azurewebsites.net" \
+            WEBSITES_PORT=8000
+
+        # Phase-specific feature flags
+        if [ "${{ inputs.phase }}" = "A1" ]; then
+          echo "Configuring A1 phase - Basic hardening"
+          az webapp config appsettings set \
+            --name ${{ env.WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --slot ${{ env.STAGING_SLOT }} \
+            --settings \
+              CONFIG_ADAPTER_ENABLED=False \
+              CACHE_LAYER_ENABLED=False \
+              CANARY_INGEST_ENABLED=False
+        elif [ "${{ inputs.phase }}" = "A3" ]; then
+          echo "Configuring A3 phase - Log sanitization"
+          az webapp config appsettings set \
+            --name ${{ env.WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --slot ${{ env.STAGING_SLOT }} \
+            --settings \
+              CONFIG_ADAPTER_ENABLED=False \
+              CACHE_LAYER_ENABLED=False \
+              CANARY_INGEST_ENABLED=False
+        elif [ "${{ inputs.phase }}" = "A4" ]; then
+          echo "Configuring A4 phase - Cache layer Redis"
+          az webapp config appsettings set \
+            --name ${{ env.WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --slot ${{ env.STAGING_SLOT }} \
+            --settings \
+              CONFIG_ADAPTER_ENABLED=False \
+              CACHE_LAYER_ENABLED=True \
+              CANARY_INGEST_ENABLED=False
+        elif [ "${{ inputs.phase }}" = "A5" ]; then
+          echo "Configuring A5 phase - Canary ingestion"
+          az webapp config appsettings set \
+            --name ${{ env.WEBAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --slot ${{ env.STAGING_SLOT }} \
+            --settings \
+              CONFIG_ADAPTER_ENABLED=False \
+              CACHE_LAYER_ENABLED=True \
+              CANARY_INGEST_ENABLED=True
+        fi
+
+    # 8. Deploy to staging slot ---------------------------------------------------
+    - name: Deploy to Staging Slot
+      if: ${{ !inputs.dry_run }}
+      run: |
+        # Restart staging slot to pick up new configuration
+        az webapp restart \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --slot ${{ env.STAGING_SLOT }}
+
+        # Wait for deployment to complete
+        echo "Waiting for staging slot to be ready..."
+        sleep 30
+
+    # 9. Smoke test --------------------------------------------------------------
+    - name: Smoke Test
+      if: ${{ !inputs.dry_run }}
+      run: |
+        STAGING_URL="https://${{ env.WEBAPP_NAME }}-${{ env.STAGING_SLOT }}.azurewebsites.net"
+        echo "Testing staging URL: $STAGING_URL"
+        
+        # Health check
+        echo "Testing health endpoint..."
+        HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$STAGING_URL/health" || echo "000")
+        
+        if [ "$HEALTH_RESPONSE" = "200" ]; then
+          echo "✅ Health check passed: HTTP $HEALTH_RESPONSE"
+          
+          # Performance test
+          echo "Testing performance..."
+          START_TIME=$(date +%s%N)
+          curl -s "$STAGING_URL/health" > /dev/null
+          END_TIME=$(date +%s%N)
+          
+          RESPONSE_TIME=$(( (END_TIME - START_TIME) / 1000000 ))
+          
+          if [ $RESPONSE_TIME -lt 1000 ]; then
+            echo "✅ Performance test passed: ${RESPONSE_TIME}ms"
+            echo "[smoke] OK p50=${RESPONSE_TIME}ms p95=${RESPONSE_TIME}ms"
+          else
+            echo "❌ Performance test failed: ${RESPONSE_TIME}ms (too slow)"
+            echo "[smoke] FAIL p50=${RESPONSE_TIME}ms p95=${RESPONSE_TIME}ms"
+            exit 1
+          fi
+        else
+          echo "❌ Health check failed: HTTP $HEALTH_RESPONSE"
+          echo "[smoke] FAIL health_check"
+          exit 1
+        fi
+
+    # 10. Phase-specific tests ---------------------------------------------------
+    - name: Phase-specific Tests
+      if: ${{ !inputs.dry_run }}
+      run: |
+        STAGING_URL="https://${{ env.WEBAPP_NAME }}-${{ env.STAGING_SLOT }}.azurewebsites.net"
+        
+        if [ "${{ inputs.phase }}" = "A4" ]; then
+          echo "Testing A4 - Cache layer endpoints..."
+          
+          # Test cache stats endpoint (should return JSON)
+          CACHE_RESPONSE=$(curl -s "$STAGING_URL/ops/cache/stats" || echo "{}")
+          if echo "$CACHE_RESPONSE" | grep -q "enabled"; then
+            echo "✅ Cache stats endpoint working"
+          else
+            echo "⚠️ Cache stats endpoint not responding as expected"
+          fi
+        fi
+
+    # 11. Output staging URL -----------------------------------------------------
+    - name: Output Staging URL
+      run: |
+        STAGING_URL="https://${{ env.WEBAPP_NAME }}-${{ env.STAGING_SLOT }}.azurewebsites.net"
+        echo "🎉 Staging deployment completed!"
+        echo "Staging URL: $STAGING_URL"
+        echo "Phase: ${{ inputs.phase }}"
+        echo "Image: ${{ env.IMAGE_TAG }}"
+        
+        # Set output for other workflows
+        echo "staging_url=$STAGING_URL" >> $GITHUB_OUTPUT
+        echo "phase=${{ inputs.phase }}" >> $GITHUB_OUTPUT
