@@ -18,15 +18,70 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from .handlers import WhatsAppBotHandler
+from .chat_core import generate_reply
+from .services import ACSService
 from .models import WhatsAppInteraction, WhatsAppTemplate
 from django.conf import settings
 from django.utils import timezone
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
+# --- Helpers de logging y extracción seguros (sin volcar cuerpos enormes) ---
+def _log_snippet(s, limit: int = 512):
+    try:
+        s = str(s)
+        return s if len(s) <= limit else s[:limit] + " [truncated]"
+    except Exception:
+        return "<unprintable>"
+
+def _is_inbound(evt_data: Dict[str, Any]) -> bool:
+    d = (evt_data.get('direction') or evt_data.get('message', {}).get('direction') or '').lower()
+    if d in ('incoming', 'inbound', 'received'):
+        return True
+    if isinstance(evt_data.get('isInbound'), bool):
+        return bool(evt_data.get('isInbound'))
+    return not evt_data.get('isOutbound', False)
+
+def _extract_text(raw: Any) -> str:
+    """Extrae texto tolerante desde content/message.*"""
+    try:
+        if isinstance(raw, str):
+            return raw
+        if isinstance(raw, dict):
+            # content puede venir como { text: { body: "..." } } o { text: "..." }
+            txt = raw.get('text')
+            if isinstance(txt, dict):
+                return str(txt.get('body', ''))
+            if txt:
+                return str(txt)
+            # fallback común
+            return str(raw.get('body', ''))
+    except Exception:
+        return ""
+    return ""
+
+# --- Monkeypatch seguro para usar el mismo "system prompt" que el CLI ---
+try:
+    from apps.embeddings import openai_service as _oai
+    if hasattr(_oai, "OpenAIService"):
+        _orig_gen = _oai.OpenAIService.generate_chat_response
+        def _wrapped_gen(self, messages, max_tokens=1000, temperature=0.7):
+            sys_prompt = getattr(settings, "WHATSAPP_SYSTEM_PROMPT", None)
+            msgs = messages or []
+            if sys_prompt:
+                if msgs and isinstance(msgs, list) and msgs and msgs[0].get("role") == "system":
+                    msgs = [{"role": "system", "content": sys_prompt}] + msgs[1:]
+                else:
+                    msgs = [{"role": "system", "content": sys_prompt}] + msgs
+            return _orig_gen(self, msgs, max_tokens=max_tokens, temperature=temperature)
+        _oai.OpenAIService.generate_chat_response = _wrapped_gen
+except Exception:
+    pass
+
 
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_http_methods(["POST", "GET"])  # GET permitido para validación Event Grid
 def webhook_handler(request):
     """
     Webhook handler for incoming WhatsApp messages from ACS.
@@ -48,35 +103,148 @@ def webhook_handler(request):
         JSON response with processing status
     """
     try:
+        # Soporte de validación por GET (?validationCode=...)
+        if request.method == 'GET':
+            code = request.GET.get('validationCode')
+            if code:
+                return JsonResponse({'validationResponse': code})
+            return JsonResponse({'success': True}, status=200)
         # Parse request body
-        if request.content_type == 'application/json':
+        if request.content_type and request.content_type.startswith('application/json'):
             data = json.loads(request.body)
         else:
             return JsonResponse({
                 'success': False,
                 'error': 'Invalid content type. Expected application/json'
             }, status=400)
+
+        # Event Grid WebHook validation (SubscriptionValidationEvent)
+        aeg_event_type = request.META.get('HTTP_AEG_EVENT_TYPE')
+        if aeg_event_type == 'SubscriptionValidation':
+            try:
+                events = data if isinstance(data, list) else [data]
+                code = events[0].get('data', {}).get('validationCode')
+            except Exception:
+                code = None
+            if code:
+                return JsonResponse({'validationResponse': code})
+
+        # Also handle validation by event payload without header
+        if isinstance(data, list) and data and data[0].get('eventType') == 'Microsoft.EventGrid.SubscriptionValidationEvent':
+            code = data[0].get('data', {}).get('validationCode')
+            if code:
+                return JsonResponse({'validationResponse': code})
+
+        # Event Grid notifications (array u objeto suelto)
+        handled_eventgrid = False
+        events = data if isinstance(data, list) else [data]
+        for evt in events:
+            evt_type = evt.get('eventType') or evt.get('type')
+            try:
+                if evt_type == 'Microsoft.Communication.AdvancedMessageReceived':
+                    handled_eventgrid = True
+                    evt_data: Dict[str, Any] = evt.get('data', {}) or {}
+                    if not _is_inbound(evt_data):
+                        logger.info("EG skip: not inbound.")
+                        continue
+
+                    # Idempotencia simple por messageId/event id (10 min)
+                    dedupe_id = evt_data.get('messageId') or evt.get('id')
+                    if dedupe_id:
+                        cache_key = f"eg_msg:{dedupe_id}"
+                        if cache.get(cache_key):
+                            logger.info("EG skip: duplicate messageId.")
+                            continue
+                        cache.set(cache_key, True, 600)
+
+                    # Extracción robusta de texto (prioriza data.content)
+                    raw_content = evt_data.get('content')
+                    if not raw_content:
+                        raw_content = (
+                            evt_data.get('message', {}).get('text')
+                            or evt_data.get('message', {}).get('text', {}).get('body')
+                        )
+                    text = _extract_text(raw_content)
+
+                    # Normalizar destinatario E.164 (sin prefijo whatsapp:)
+                    frm = (evt_data.get('from') or '')
+                    digits = ''.join(ch for ch in str(frm) if ch.isdigit())
+                    to_e164 = f"+{digits}" if digits else None
+                    if not to_e164:
+                        logger.error("No E.164 derived from 'from' field; skipping send.")
+                        continue
+
+                    reply_text = generate_reply(text or '', conversation_id=to_e164)
+                    # Enviar por ACS desde WebApp (misma ruta que la rama clásica)
+                    try:
+                        ACSService().send_text_message(to_e164, reply_text)
+                    except Exception as send_err:
+                        logger.error(f"Fallo al enviar por ACS (EventGrid): {_log_snippet(send_err)}")
+                elif evt_type in (
+                    'Microsoft.Communication.AdvancedMessageDeliveryStatusUpdated',
+                    'Microsoft.Communication.AdvancedMessageAnalysisCompleted',
+                ):
+                    handled_eventgrid = True
+                    # Solo registrar
+                    pass
+            except Exception as parse_err:  # pragma: no cover
+                logger.error(f"Error procesando evento EventGrid: {_log_snippet(parse_err)}")
+        # Si se procesó un evento de Event Grid, responder 200 y terminar
+        if handled_eventgrid:
+            return JsonResponse({'success': True})
+        # Responder 200 siempre para notificaciones
+        # (el bloque webhook clásico abajo seguirá funcionando para POSTs directos ACS→WebApp)
         
-        logger.info(f"Webhook received: {json.dumps(data, indent=2)}")
+        try:
+            keys = list(data[0].keys()) if isinstance(data, list) else list(data.keys())
+        except Exception:
+            keys = []
+        logger.info(f"Webhook received; keys={keys}")
         
         # Extract message data
-        from_number = data.get('from', '').replace('whatsapp:', '')
+        from_addr = data.get('from', '')
         message_data = data.get('message', {})
         message_text = message_data.get('text', '')
         timestamp = data.get('timestamp', '')
         
-        if not from_number or not message_text:
+        if not from_addr or not message_text:
             return JsonResponse({
                 'success': False,
                 'error': 'Missing required fields: from or message.text'
             }, status=400)
         
-        # Process message with bot handler
+        # Process message with bot handler (payload dict as expected by handler)
         bot_handler = WhatsAppBotHandler()
-        result = bot_handler.process_message(from_number, message_text)
+        # Número en ambos formatos
+        from_number_e164 = from_addr if from_addr.startswith('whatsapp:') else f"whatsapp:{from_addr}"
+        from_number_plain = from_number_e164.replace('whatsapp:', '')
+        payload = {'phone_number': from_number_plain, 'message_text': message_text}
+
+        # Adapter mínimo: si BOT_USE_RAG=True, usar el mismo núcleo del CLI
+        # sin alterar otras rutas ni side-effects
+        try:
+            use_rag = getattr(settings, 'BOT_USE_RAG', False)
+        except Exception:
+            use_rag = False
+
+        if use_rag:
+            try:
+                # Nuevas llamadas pasan por el núcleo compartido
+                answer_text = generate_reply(message_text, conversation_id=from_number_plain)
+            except Exception as _rag_err:
+                logger.info(f"RAG no disponible en webhook, usando ruta estándar: {_rag_err}")
+                result = bot_handler.process_message(payload)
+            else:
+                try:
+                    ACSService().send_text_message(from_number_e164, answer_text)
+                except Exception as send_err:
+                    logger.error(f"Fallo al enviar por ACS: {send_err}")
+                result = {"success": True, "response": answer_text, "response_type": "general"}
+        else:
+            result = bot_handler.process_message(payload)
         
         # Log webhook processing
-        logger.info(f"Webhook processed for {from_number}: {result['success']}")
+        logger.info(f"Webhook processed for {from_number_plain}: {result['success']}")
         
         return JsonResponse({
             'success': True,

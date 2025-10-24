@@ -9,23 +9,13 @@ __pycache__/
 *.pyo
 *.pyd
 *.pytest_cache/
-.egg-info/
-.eggs/
-.mypy_cache/
-.coverage
-htmlcov/
-.py[cod]
-.so
 .venv/
 venv/
 venv_old/
-env/
 
 # VCS and editor files
 .git/
 .gitignore
-.gitattributes
-.github/
 .vscode/
 .idea/
 
@@ -38,9 +28,6 @@ tests/
 webapp-logs/
 logs/
 *.log
-*.pid
-*.tmp
-tmp/
 
 # Node/Front caches (if any)
 node_modules/
@@ -51,15 +38,5 @@ node_modules/
 *.tar.gz
 backup/
 .backup/
-
-# Local files and media
-.DS_Store
-Thumbs.db
-media/
-uploads/
-audio_tmp/
-*.sqlite3
-*.db
-
 
 

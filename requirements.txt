@@ -1,4 +1,4 @@
-# ===========================================
+﻿# ===========================================
 # VEA CONNECT WEBAPP - REQUIREMENTS.TXT
 # ===========================================
 # REQUERIDO: Python 3.10+
@@ -63,7 +63,7 @@ cryptography==41.0.7
 urllib3==2.0.7
 timeout-decorator==0.5.0
 opencensus-ext-azure==1.1.12
-
 # === RESTRICCIONES PARA EVITAR CONFLICTOS ===
 setuptools>=65.0.0,<70.0.0
 wheel>=0.38.0,<0.42.0
+

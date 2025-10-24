@@ -1,0 +1,29 @@
+﻿{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      }
+    },
+    "logLevel": {
+      "": "Information",
+      "functions": "Information",
+      "functions.whatsapp_event_grid_trigger": "Information",
+      "functions.create_embedding": "Information",
+      "functions.get_stats": "Information",
+      "functions.search_similar": "Information",
+      "functions.health": "Information",
+      "functions.embeddings_health_check": "Information"
+    }
+  },
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.*, 5.0.0)"
+  },
+  "functionTimeout": "00:05:00",
+  "http": {
+    "routePrefix": "api"
+  }
+}

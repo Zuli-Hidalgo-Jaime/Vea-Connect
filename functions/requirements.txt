@@ -1,53 +1,13 @@
-# Azure Functions Core Dependencies
-azure-functions==1.18.0
-
-# Azure Core (required for all Azure SDKs)
+﻿azure-functions==1.19.0
 azure-core==1.35.0
-
-# Azure Communication Services
-azure-communication-sms==1.1.0
 azure-communication-messages==1.0.0
-
-# Azure Event Grid
-azure-eventgrid==4.15.0
-
-# Azure Search Dependencies
 azure-search-documents==11.4.0
-
-# Data Validation
-pydantic==2.5.3
-pydantic-core==2.14.6
-
-# Retry Logic
-tenacity==8.3.0
-
-# Azure OpenAI Dependencies
 openai==1.30.5
-
-# HTTP Requests (for Django integration)
 requests==2.31.0
-httpx==0.25.2
-
-# Logging and Utilities
-python-dateutil==2.8.2
-
-# Type Hints Support
-typing-extensions==4.8.0
-
-# JSON Handling
-jsonschema==4.20.0
-
-# Azure Identity (for authentication)
+httpx==0.27.2
 azure-identity==1.15.0
-
-# Azure Storage (if needed for blob operations)
 azure-storage-blob==12.19.0
-
-# Additional Azure dependencies that might be needed
-azure-communication-identity==1.2.0
-azure-communication-phonenumbers==1.1.0
-
-# Application Insights (for monitoring)
+python-dateutil==2.8.2
+jsonschema==4.20.0
+typing-extensions==4.8.0
 opencensus-ext-azure==1.1.12
-
-

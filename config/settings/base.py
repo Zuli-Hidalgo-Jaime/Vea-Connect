@@ -24,6 +24,9 @@ CONFIG_ADAPTER_ENABLED = os.environ.get('CONFIG_ADAPTER_ENABLED', 'False') == 'T
 CACHE_LAYER_ENABLED = os.environ.get('CACHE_LAYER_ENABLED', 'False') == 'True'
 CANARY_INGEST_ENABLED = os.environ.get('CANARY_INGEST_ENABLED', 'False') == 'True'
 
+# WhatsApp Bot flags
+BOT_USE_RAG = os.environ.get('BOT_USE_RAG', 'false').lower() == 'true'
+
 # Azure Function App Settings
 FUNCTION_APP_URL = os.environ.get('FUNCTION_APP_URL') # ej: https://func-vea-connect-dev.azurewebsites.net/api/FunctionName
 FUNCTION_APP_KEY = os.environ.get('FUNCTION_APP_KEY') # La clave 'default' de tus Host Keys
@@ -271,6 +274,12 @@ ACS_WHATSAPP_API_KEY = os.environ.get('ACS_WHATSAPP_API_KEY', '')
 ACS_WHATSAPP_ENDPOINT = os.environ.get('ACS_WHATSAPP_ENDPOINT', '')
 WHATSAPP_ACCESS_TOKEN = os.environ.get('WHATSAPP_ACCESS_TOKEN', '')
 WHATSAPP_CHANNEL_ID_GUID = os.environ.get('WHATSAPP_CHANNEL_ID_GUID', 'c3dd072b-9283-4812-8ed0-10b1d3a45da1')
+
+# System prompt opcional para alinear producción con CLI sin tocar código
+WHATSAPP_SYSTEM_PROMPT = os.environ.get(
+    'WHATSAPP_SYSTEM_PROMPT',
+    "Responde en español, claro y breve, usando exclusivamente el contexto provisto. Si el contexto no contiene la respuesta, indícalo y sugiere contactar a un humano."
+)
 
 # WhatsApp Bot Templates Configuration
 WHATSAPP_TEMPLATES = {

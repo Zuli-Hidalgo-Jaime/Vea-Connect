@@ -12,13 +12,38 @@ import logging
 import time
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
+import os
+import base64
+import hashlib
+import hmac
+import uuid
+from urllib.parse import urlparse
 from django.conf import settings
 from django.db import connection
 from django.core.cache import cache
 import requests
+import re
 from .models import WhatsAppTemplate, WhatsAppInteraction, WhatsAppContext, DataSource
 
 logger = logging.getLogger(__name__)
+
+def _log_snippet(s: object, limit: int = 512) -> str:
+    try:
+        s = str(s)
+        return s if len(s) <= limit else s[:limit] + " [truncated]"
+    except Exception:
+        return "<unprintable>"
+
+def _b64decode_strict(key_b64: str) -> bytes:
+    """Decodifica base64 con padding normalizado y error claro si no es base64 real."""
+    try:
+        k = (key_b64 or '').strip()
+        rem = len(k) % 4
+        if rem:
+            k = k + ("=" * (4 - rem))
+        return base64.b64decode(k, validate=True)
+    except Exception as e:  # pragma: no cover
+        raise ValueError("ACS access key no parece base64 válida") from e
 
 
 class ACSService:
@@ -30,17 +55,99 @@ class ACSService:
     """
     
     def __init__(self):
-        """Initialize ACS service with configuration."""
-        self.endpoint = getattr(settings, 'ACS_WHATSAPP_ENDPOINT', 'https://your-acs-resource.communication.azure.com')
-        self.access_key = getattr(settings, 'ACS_WHATSAPP_API_KEY', 'your-acs-access-key')
+        """Initialize ACS service with configuration (HMAC/AAD).
+
+        Respeta App Settings existentes y, si faltan endpoint/key, intenta derivarlos
+        desde `ACS_CONNECTION_STRING` con formato `endpoint=...;accesskey=...`.
+        """
+        self.endpoint = (getattr(settings, 'ACS_WHATSAPP_ENDPOINT', '') or '').strip()
+        self.access_key = getattr(settings, 'ACS_WHATSAPP_API_KEY', '') or ''
         self.phone_number = getattr(settings, 'ACS_PHONE_NUMBER', 'whatsapp:+1234567890')
-        self.channel_id = getattr(settings, 'WHATSAPP_CHANNEL_ID_GUID', 'c3dd072b-92b3-4812-8ed0-10b1d3a45da1')
+        self.channel_id = getattr(settings, 'WHATSAPP_CHANNEL_ID_GUID', '') or ''
+        self.auth_mode = (getattr(settings, 'ACS_AUTH_MODE', 'hmac') or 'hmac').lower()
         self.base_url = f"{self.endpoint}/messages"
-        self.headers = {
-            'Authorization': f'HMAC-SHA256 {self.access_key}',
+        self.headers = { 'Content-Type': 'application/json', 'X-Microsoft-Skype-Chain-ID': 'whatsapp-bot' }
+        # Fallback: intentar derivar desde ACS_CONNECTION_STRING si faltan valores
+        if not self.endpoint or not self.access_key:
+            try:
+                conn = getattr(settings, 'ACS_CONNECTION_STRING', os.environ.get('ACS_CONNECTION_STRING', '')) or ''
+                parts = {}
+                for seg in conn.split(';'):
+                    if not seg:
+                        continue
+                    if '=' in seg:
+                        k, v = seg.split('=', 1)
+                        parts[k.strip().lower()] = v.strip()
+                if not self.endpoint:
+                    self.endpoint = (parts.get('endpoint') or '').strip()
+                if not self.access_key:
+                    self.access_key = (parts.get('accesskey') or parts.get('access_key') or parts.get('key') or '').strip()
+            except Exception as _:
+                # No interrumpir inicialización; se validará abajo
+                pass
+        # Normalizaciones finales
+        self.endpoint = (self.endpoint or '').rstrip('/')
+        if self.endpoint and 'communication.azure.com' not in self.endpoint:
+            raise ValueError(f"Invalid ACS endpoint: {self.endpoint}")
+        # Validar base64 de access key si en HMAC (mensaje corto y claro)
+        if self.auth_mode != 'aad':
+            if not self.access_key:
+                raise ValueError('ACS access key ausente')
+            try:
+                _ = _b64decode_strict(self.access_key)
+            except ValueError as e:
+                logger.error(str(e))
+                raise
+        if not self.channel_id:
+            raise ValueError('WHATSAPP_CHANNEL_ID_GUID ausente')
+
+    def _hmac_headers(self, method: str, url: str, body: bytes) -> Dict[str, str]:
+        now = datetime.utcnow()
+        xms_date = now.strftime('%a, %d %b %Y %H:%M:%S GMT')
+        host = urlparse(url).netloc
+        content_sha256 = base64.b64encode(hashlib.sha256(body).digest()).decode()
+        signed_headers = 'x-ms-date;host;x-ms-content-sha256'
+        u = urlparse(url)
+        path = u.path or '/'
+        query = u.query or ''
+        string_to_sign = f"{method}\n{path}\n{query}\n{xms_date};{host};{content_sha256}"
+        key = _b64decode_strict(self.access_key)
+        signature = base64.b64encode(hmac.new(key, string_to_sign.encode('utf-8'), hashlib.sha256).digest()).decode()
+        authorization = f"HMAC-SHA256 SignedHeaders={signed_headers}&Signature={signature}"
+        return {
+            'Authorization': authorization,
+            'x-ms-date': xms_date,
+            'x-ms-content-sha256': content_sha256,
+            'x-ms-client-request-id': str(uuid.uuid4()),
+            'Repeatability-Request-ID': str(uuid.uuid4()),
+            'Repeatability-First-Sent': now.isoformat() + 'Z',
             'Content-Type': 'application/json',
-            'X-Microsoft-Skype-Chain-ID': 'whatsapp-bot'
         }
+
+    def _aad_headers(self) -> Dict[str, str]:
+        try:
+            from azure.identity import DefaultAzureCredential  # type: ignore
+        except Exception as e:  # pragma: no cover
+            raise RuntimeError('azure-identity not available for AAD auth') from e
+        cred = DefaultAzureCredential(exclude_interactive_browser_credential=True)
+        token = cred.get_token('https://communication.azure.com/.default')
+        return {
+            'Authorization': f'Bearer {token.token}',
+            'x-ms-client-request-id': str(uuid.uuid4()),
+            'Repeatability-Request-ID': str(uuid.uuid4()),
+            'Repeatability-First-Sent': datetime.utcnow().isoformat() + 'Z',
+            'Content-Type': 'application/json',
+        }
+
+    def _headers(self, method: str, url: str, body: bytes) -> Dict[str, str]:
+        if self.auth_mode == 'aad':
+            return self._aad_headers()
+        return self._hmac_headers(method, url, body)
+    
+    def _normalize_phone(self, phone: str) -> str:
+        """Ensure whatsapp:+E164 without spaces."""
+        p = re.sub(r'\D', '', phone.replace('whatsapp:', ''))
+        return f"whatsapp:+{p}" if not phone.startswith('whatsapp:') else f"whatsapp:+{p}"
     
     def send_template_message(
         self,
@@ -65,6 +172,7 @@ class ACSService:
             Exception: If ACS request fails
         """
         try:
+            to_phone = self._normalize_phone(to_phone)
             payload = {
                 "from": self.phone_number,
                 "to": [to_phone],
@@ -120,24 +228,28 @@ class ACSService:
             Dictionary with response data
         """
         try:
-            payload = {
-                "from": self.phone_number,
-                "to": [to_phone],
-                "channelRegistrationId": self.channel_id,
-                "content": {
-                    "type": "text",
-                    "text": text
-                }
+            # Validación de base URL de ACS (evitar endpoints erróneos)
+            base = str(self.endpoint).strip().lower()
+            if "communication.azure.com" not in base:
+                raise RuntimeError(f"Invalid ACS base url: {base}")
+
+            # Destino E.164 sin prefijo whatsapp:
+            p = re.sub(r'\D', '', str(to_phone).replace('whatsapp:', ''))
+            to_e164 = f"+{p}" if p else ""
+
+            url = f"{self.endpoint}/messages/notifications:send?api-version=2024-08-30"
+            body_obj = {
+                'channelRegistrationId': self.channel_id,
+                'to': [to_e164],
+                'kind': 'text',
+                'content': { 'text': text },
             }
-            
-            logger.info(f"Sending text message to {to_phone}")
-            
-            response = requests.post(
-                self.base_url,
-                headers=self.headers,
-                json=payload,
-                timeout=30
-            )
+            body = json.dumps(body_obj, ensure_ascii=False).encode('utf-8')
+            headers = self._headers('POST', url, body)
+
+            logger.info(f"Sending text message to {to_e164}")
+
+            response = requests.post(url, data=body, headers=headers, timeout=20)
             
             if response.status_code == 202:
                 response_data = response.json()
@@ -148,7 +260,10 @@ class ACSService:
                     'status': 'accepted'
                 }
             else:
-                error_msg = f"ACS request failed: {response.status_code} - {response.text}"
+                ctype = response.headers.get('content-type','')
+                body = response.text if 'json' in ctype else '<non-json body>'
+                snippet = body if len(body) <= 512 else body[:512] + ' [truncated]'
+                error_msg = f"ACS request failed: {response.status_code} - {snippet}"
                 logger.error(error_msg)
                 raise Exception(error_msg)
                 

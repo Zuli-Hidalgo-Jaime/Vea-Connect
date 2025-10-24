@@ -664,8 +664,11 @@ class WhatsAppBotHandler:
                 from apps.embeddings.openai_service import OpenAIService  # import local para no afectar otros flujos
                 oai = OpenAIService()
                 if getattr(oai, 'is_configured', False):
+                    system_prompt = getattr(settings, 'WHATSAPP_SYSTEM_PROMPT', None)
+                    if not system_prompt:
+                        system_prompt = "Responde en español, breve y claro, usando exclusivamente el contexto provisto. Si el contexto no contiene la respuesta, indícalo explícitamente."
                     messages = [
-                        {"role": "system", "content": "Responde en español, breve y claro, usando exclusivamente el contexto provisto. Si el contexto no contiene la respuesta, indícalo explícitamente."},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": f"Contexto:\n{context}\n\nPregunta: {message_text}"}
                     ]
                     llm_answer = oai.generate_chat_response(messages, max_tokens=350, temperature=0.2)

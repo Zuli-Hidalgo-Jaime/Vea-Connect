@@ -6,6 +6,7 @@ import os
 import logging
 from typing import List, Dict, Optional, Any
 from openai import AzureOpenAI
+import httpx
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -97,11 +98,28 @@ class OpenAIService:
                 or '2024-02-15-preview'
             )
 
-            self.client = AzureOpenAI(
-                api_key=api_key,
-                api_version=api_version,
-                azure_endpoint=azure_endpoint,
-            )
+            # Cliente AzureOpenAI sin proxies; intenta con http_client y si falla por 'proxies', reintenta sin él
+            try:
+                http_client = httpx.Client(
+                    timeout=httpx.Timeout(30.0, connect=10.0),
+                    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                )
+                self.client = AzureOpenAI(
+                    api_key=api_key,
+                    api_version=api_version,
+                    azure_endpoint=azure_endpoint,
+                    http_client=http_client,
+                )
+            except TypeError as te:
+                if 'proxies' in str(te).lower():
+                    # Reintentar sin http_client para evitar choque con proxies internos
+                    self.client = AzureOpenAI(
+                        api_key=api_key,
+                        api_version=api_version,
+                        azure_endpoint=azure_endpoint,
+                    )
+                else:
+                    raise
 
             self.is_configured = True
             logger.info(

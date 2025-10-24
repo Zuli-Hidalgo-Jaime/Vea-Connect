@@ -8,7 +8,8 @@ including registration, updates, and retrieval from PostgreSQL.
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from django.db import connection, transaction
+from django.db import connection, transaction as db_transaction
+from contextlib import closing
 from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class UserService:
                 return cached_user
             
             # Query database
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute("""
                     SELECT 
                         id, phone_number, first_name, last_name, email,
@@ -129,7 +130,7 @@ class UserService:
             List of interaction dictionaries
         """
         try:
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute("""
                     SELECT 
                         id, phone_number, message_text, intent_detected,
@@ -178,8 +179,8 @@ class UserService:
             True if successful, False otherwise
         """
         try:
-            with transaction.atomic():
-                with connection.cursor() as cursor:
+            with db_transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+                with closing(connection.cursor()) as cursor:
                     cursor.execute("""
                         UPDATE whatsapp_users 
                         SET 
@@ -227,7 +228,7 @@ class UserService:
                 }
             
             # Get interaction statistics
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute("""
                     SELECT 
                         COUNT(*) as total_interactions,
@@ -279,8 +280,8 @@ class UserService:
             True if successful, False otherwise
         """
         try:
-            with transaction.atomic():
-                with connection.cursor() as cursor:
+            with db_transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+                with closing(connection.cursor()) as cursor:
                     cursor.execute("""
                         INSERT INTO whatsapp_users (
                             phone_number, first_name, last_name, email,
@@ -317,7 +318,7 @@ class UserService:
             True if successful, False otherwise
         """
         try:
-            with transaction.atomic():
+            with db_transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
                 # Build update query dynamically
                 update_fields = []
                 update_values = []
@@ -345,7 +346,7 @@ class UserService:
                 if update_fields:
                     update_values.append(phone_number)
                     
-                    with connection.cursor() as cursor:
+                    with closing(connection.cursor()) as cursor:
                         query = f"""
                             UPDATE whatsapp_users 
                             SET {', '.join(update_fields)}
@@ -382,8 +383,8 @@ class UserService:
             True if successful, False otherwise
         """
         try:
-            with transaction.atomic():
-                with connection.cursor() as cursor:
+            with db_transaction.atomic():  # pyright: ignore[reportGeneralTypeIssues]
+                with closing(connection.cursor()) as cursor:
                     cursor.execute("""
                         UPDATE whatsapp_users 
                         SET is_active = false, updated_at = NOW()
@@ -413,7 +414,7 @@ class UserService:
             Number of active users
         """
         try:
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM whatsapp_users 
@@ -442,7 +443,7 @@ class UserService:
             List of user dictionaries
         """
         try:
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute("""
                     SELECT 
                         phone_number, first_name, last_name, email,
