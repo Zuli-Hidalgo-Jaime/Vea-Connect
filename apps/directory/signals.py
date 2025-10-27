@@ -9,6 +9,7 @@ import io
 import zipfile
 from datetime import datetime
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +59,12 @@ def upload_contact_to_blob(sender, instance, created, **kwargs):
                 idx_id = f"contact_{instance.id}"
 
                 # Construir contenido de búsqueda desde los campos del contacto
+                # NO incluir 'contact' para evitar indexar números de teléfono
                 parts = [
                     getattr(instance, "first_name", "") or "",
                     getattr(instance, "last_name", "") or "",
                     getattr(instance, "role", "") or "",
                     getattr(instance, "ministry", "") or "",
-                    getattr(instance, "contact", "") or "",
                 ]
                 content = " ".join(p for p in parts if p).strip()
 
