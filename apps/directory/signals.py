@@ -80,6 +80,7 @@ def upload_contact_to_blob(sender, instance, created, **kwargs):
                 }
                 doc = {k: v for k, v in doc.items() if v not in (None, "")}
 
+                logger.warning(f"[DEBUG-DOUBLE-INDEX] Subiendo documento: {json.dumps(doc, default=str)}")
                 sc.search_client.upload_documents(documents=[doc])
                 logger.info("[DIRECTORY] Upsert OK id=%s", idx_id)
             except Exception as ex:
