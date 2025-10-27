@@ -45,7 +45,8 @@ def upload_contact_to_blob(sender, instance, created, **kwargs):
         }
         
         # Create text content for embedding
-        contact_text = f"{contact_data['first_name']} {contact_data['last_name']} {contact_data['role']} {contact_data['ministry']} {contact_data['contact']}"
+        # NO incluir 'contact' para evitar indexar números de teléfono
+        contact_text = f"{contact_data['first_name']} {contact_data['last_name']} {contact_data['role']} {contact_data['ministry']}"
         contact_text = contact_text.strip()
         
         if contact_text:
