@@ -1,0 +1,53 @@
+name: Deploy Azure Function V2
+
+on:
+  push:
+    branches:
+      - main  # Cambiar a la rama que quieras usar para deploy
+    paths:
+      - 'functions-v2/**'
+      - '.github/workflows/deploy-funcapp-v2.yml'
+  workflow_dispatch:  # Permitir ejecución manual
+
+env:
+  AZURE_FUNCTIONAPP_NAME: funcapp-vea-v2
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: 'functions-v2'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: 'Checkout código'
+      uses: actions/checkout@v4
+
+    - name: 'Setup Python ${{ env.PYTHON_VERSION }}'
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: 'Instalar dependencias'
+      shell: bash
+      run: |
+        pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+        popd
+
+    - name: 'Deploy a Azure Functions'
+      uses: Azure/functions-action@v1
+      with:
+        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+        package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+        publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE_V2 }}
+        scm-do-build-during-deployment: true
+        enable-oryx-build: true
+
+    - name: 'Verificar deployment'
+      run: |
+        echo "✅ Deployment completado a ${{ env.AZURE_FUNCTIONAPP_NAME }}"
+        echo "📦 Paquete desplegado desde: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
+        echo "🐍 Python version: ${{ env.PYTHON_VERSION }}"
+
