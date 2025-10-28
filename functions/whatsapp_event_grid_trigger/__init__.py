@@ -472,7 +472,7 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
             model=openai_deployment,  # type: ignore
             messages=messages,  # type: ignore
             max_tokens=500,
-            temperature=0.7
+            temperature=0.0
         )
         
         if response.choices and response.choices[0].message and response.choices[0].message.content:
