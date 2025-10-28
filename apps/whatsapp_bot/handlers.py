@@ -665,7 +665,7 @@ class WhatsAppBotHandler:
                 oai = OpenAIService()
                 if getattr(oai, 'is_configured', False):
                     messages = [
-                        {"role": "system", "content": "Responde en español, breve y claro, usando exclusivamente el contexto provisto. Si el contexto no contiene la respuesta, indícalo explícitamente."},
+                        {"role": "system", "content": "Eres un asistente de WhatsApp para la organización de VEA. Responde SOLO con base en el contexto del índice que se te proporciona. Sé claro, breve y respetuoso y usa lenguaje religioso amable. Si el contexto no contiene la respuesta, dilo explícitamente y sugiere contactar al equipo de Iglesia VEA."},
                         {"role": "user", "content": f"Contexto:\n{context}\n\nPregunta: {message_text}"}
                     ]
                     llm_answer = oai.generate_chat_response(messages, max_tokens=350, temperature=0.2)
