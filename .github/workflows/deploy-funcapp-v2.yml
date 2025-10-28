@@ -3,11 +3,8 @@ name: Deploy Azure Function V2
 on:
   push:
     branches:
-      - main  # Cambiar a la rama que quieras usar para deploy
-    paths:
-      - 'functions-v2/**'
-      - '.github/workflows/deploy-funcapp-v2.yml'
-  workflow_dispatch:  # Permitir ejecución manual
+      - main  # Se ejecuta con CUALQUIER push a main
+  workflow_dispatch:  # Permitir ejecución manual desde GitHub Actions
 
 env:
   AZURE_FUNCTIONAPP_NAME: funcapp-vea-v2
