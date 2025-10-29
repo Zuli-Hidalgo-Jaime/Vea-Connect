@@ -156,9 +156,7 @@ def upload_event_to_blob(sender, instance, created, **kwargs):
                     _extra = _compose_event_content(instance)
                 except Exception:
                     _extra = ""
-                # [EVENTO-PREFIX] Agregar prefijo para mejorar búsqueda vectorial
-                base_content = ((event_text or "") + "\n" + (_extra or "")).strip()
-                content_text = "[EVENTO] " + base_content if base_content else ""
+                content_text = ((event_text or "") + "\n" + (_extra or "")).strip()
 
                 metadata_doc_id = document_id
                 index_doc = {
