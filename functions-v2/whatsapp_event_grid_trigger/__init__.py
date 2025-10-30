@@ -1,191 +1,863 @@
-"""
-Azure Function: WhatsApp Event Grid Trigger V2
-Basado en la lógica de scripts/whatsapp_chat_cli.py
-Usa SOLO RAG con el prompt estricto y temperature=0.0
-"""
-import os
-import sys
-import json
 import logging
+import json
+import os
+import time
 import azure.functions as func
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timezone
+import requests
+import hmac
+import hashlib
+import base64
 
-# Configurar logging
-logger = logging.getLogger("whatsapp_event_grid_trigger_v2")
-logger.setLevel(logging.INFO)
-
-
-def ensure_django():
-    """Configurar Django environment para importar handlers"""
-    # Agregar la raíz del proyecto al path
-    # En Azure Functions, el código está en /home/site/wwwroot/
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-    
-    # Configurar settings module
-    settings_module = (
-        "config.settings.azure_production"
-        if 'WEBSITE_HOSTNAME' in os.environ
-        else 'config.settings.development'
-    )
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', settings_module)
-    
-    # Setup Django
-    import django
-    django.setup()
-
-
-# Inicializar Django ANTES de importar handlers
-ensure_django()
-
-from django.conf import settings
-from apps.whatsapp_bot.handlers import WhatsAppBotHandler
-from utilities.azure_search_client import get_azure_search_client
-from utilities.embedding_manager import EmbeddingManager
-
-
-# Habilitar RAG (como en el CLI, línea 45)
-setattr(settings, 'BOT_USE_RAG', True)
-
-
-# System prompt estricto (como scripts/prompts/whatsapp_cli_prompt.txt)
-SYSTEM_PROMPT = """Eres un asistente de WhatsApp para la organización de VEA. Responde SOLO con base en el contexto del índice que se te proporciona. Sé claro, breve y respetuoso y usa lenguaje religioso amable. Si el contexto no contiene la respuesta, dilo explícitamente y sugiere contactar al equipo de Iglesia VEA."""
-
-
-# Monkeypatch de OpenAIService.generate_chat_response (como CLI, líneas 79-103)
+# Try to import Azure Communication Messages SDK
 try:
-    from apps.embeddings import openai_service as oai_mod
-    if hasattr(oai_mod, 'OpenAIService'):
-        _orig_generate = oai_mod.OpenAIService.generate_chat_response
-        
-        def _wrapped_generate(self, messages, max_tokens=1000, temperature=0.0):
-            """
-            Override para inyectar el SYSTEM_PROMPT estricto y usar temperature=0.0
-            """
-            if messages and isinstance(messages, list):
-                # Reemplazar/inyectar el mensaje de sistema
-                new_messages = []
-                has_system = False
-                for m in messages:
-                    if m.get('role') == 'system' and not has_system:
-                        new_messages.append({'role': 'system', 'content': SYSTEM_PROMPT})
-                        has_system = True
-                    else:
-                        new_messages.append(m)
-                if not has_system:
-                    new_messages.insert(0, {'role': 'system', 'content': SYSTEM_PROMPT})
-                messages = new_messages
-            
-            # SIEMPRE usar temperature=0.0 (más estricto que CLI)
-            return _orig_generate(self, messages, max_tokens=max_tokens, temperature=0.0)
-        
-        # Aplicar monkeypatch
-        oai_mod.OpenAIService.generate_chat_response = _wrapped_generate
-        logger.info("[V2] Monkeypatch aplicado: SYSTEM_PROMPT estricto + temperature=0.0")
+    from azure.communication.messages import NotificationMessagesClient
+    from azure.communication.messages.models import TextNotificationContent, ImageNotificationContent
+    ACS_SDK_AVAILABLE = True
+    logger = logging.getLogger(__name__)
+    logger.info("Azure Communication Advanced Messages SDK imported successfully")
+except ImportError as e:
+    ACS_SDK_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Azure Communication Advanced Messages SDK not available: {e}. Will use HTTP fallback.")
 except Exception as e:
-    logger.warning(f"[V2] No se pudo aplicar monkeypatch a OpenAIService: {e}")
+    ACS_SDK_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Error importing Azure Communication Advanced Messages SDK: {e}. Will use HTTP fallback.")
 
+# Force SDK usage if available
+if ACS_SDK_AVAILABLE:
+    logger.info("SDK is available - will use SDK for messaging")
+else:
+    logger.error("SDK is NOT available - this is the problem!")
+    # Try to debug why SDK is not available
+    try:
+        import sys
+        logger.info(f"Python path: {sys.path}")
+    except Exception as debug_e:
+        logger.error(f"Error debugging SDK availability: {debug_e}")
 
-# Inicializar servicios globales
-_handler = None
+# Configure logging
+logger = logging.getLogger(__name__)
 
+# Environment variables for configuration
+E2E_DEBUG = os.getenv('E2E_DEBUG', 'false').lower() == 'true'
+WHATSAPP_DEBUG = os.getenv('WHATSAPP_DEBUG', 'false').lower() == 'true'
+RAG_ENABLED = os.getenv('RAG_ENABLED', 'true').lower() == 'true'  # Changed to true by default
+BOT_SYSTEM_PROMPT = os.getenv('BOT_SYSTEM_PROMPT', """
+Eres un asistente de WhatsApp para la organización de VEA. Responde SOLO con base en el contexto del índice que se te proporciona. Sé claro, breve y respetuoso y usa lenguaje religioso amable. Si el contexto no contiene la respuesta, dilo explícitamente y sugiere contactar al equipo de Iglesia VEA.
+""")
 
-def get_handler():
-    """Lazy initialization del handler"""
-    global _handler
-    if _handler is None:
-        try:
-            # Importar ACS service
-            from services.whatsapp_sender import WhatsAppSender
-            
-            # Inicializar Azure Search Client y Embedding Manager
-            search_client = get_azure_search_client()
-            embedding_manager = EmbeddingManager(search_client=search_client)
-            
-            # Inicializar ACS service
-            connection_string = os.environ.get('ACS_CONNECTION_STRING')
-            if not connection_string:
-                raise ValueError("ACS_CONNECTION_STRING no está configurado")
-            
-            acs_service = WhatsAppSender(connection_string=connection_string)
-            
-            # Crear handler
-            _handler = WhatsAppBotHandler(
-                acs_service=acs_service,
-                embedding_manager=embedding_manager
-            )
-            
-            logger.info("[V2] Handler inicializado correctamente")
-        except Exception as e:
-            logger.error(f"[V2] Error inicializando handler: {e}")
-            raise
-    
-    return _handler
+# Diagnostic logging for ACS environment variables
+if E2E_DEBUG:
+    logger.info("=== ACS Environment Variables Diagnostic ===")
+    acs_vars = {k: v for k, v in os.environ.items() if 'ACS' in k.upper()}
+    for var_name, var_value in acs_vars.items():
+        if 'KEY' in var_name.upper() or 'SECRET' in var_name.upper():
+            logger.info(f"{var_name}: {'SET' if var_value else 'NOT SET'} - Value: {var_value[:10] if var_value else 'None'}...")
+        else:
+            logger.info(f"{var_name}: {'SET' if var_value else 'NOT SET'} - Value: {var_value if var_value else 'None'}")
+    logger.info("=== End ACS Environment Variables Diagnostic ===")
 
-
-def main(event: func.EventGridEvent):
+def _normalize_phone_number(phone: str) -> str:
     """
-    Main function handler para Event Grid
-    Lógica basada en whatsapp_chat_cli.py (modo RAG directo)
+    Normalize phone number to E.164 format.
+    
+    Args:
+        phone: Phone number in various formats
+        
+    Returns:
+        Normalized phone number in E.164 format
+    """
+    # Remove common prefixes and clean up
+    phone = str(phone).strip()
+    
+    # Remove whatsapp: prefix if present
+    if phone.startswith('whatsapp:'):
+        phone = phone[9:]
+    
+    # Remove common separators
+    phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    
+    # Add + if not present and looks like a valid number
+    if not phone.startswith('+') and len(phone) >= 10:
+        # Assume it's a US number if no country code
+        if len(phone) == 10:
+            phone = '+1' + phone
+        elif len(phone) == 11 and phone.startswith('1'):
+            phone = '+' + phone
+    
+    return phone
+
+def _extract_message_data_tolerant(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract message data from ACS Advanced Messaging payload with tolerant schema parsing.
+    Supports multiple schemas for robust parsing.
+    
+    Args:
+        data: The message data dictionary
+        
+    Returns:
+        Dictionary with normalized message info or None
     """
     try:
-        logger.info(f"[V2] Event Grid trigger ejecutado. Event ID: {event.id}")
+        # Log the data structure for debugging (truncated to 2000 chars)
+        data_str = json.dumps(data, indent=2)
+        if len(data_str) > 2000:
+            data_str = data_str[:2000] + "..."
+        logger.info(f"Attempting to extract message data from: {data_str}")
         
-        # Parsear el evento
-        event_data = event.get_json()
-        logger.info(f"[V2] Event data: {json.dumps(event_data, default=str)[:500]}")
+        # Schema 1: Evento plano con keys directas
+        if all(key in data for key in ['content', 'channelType', 'messageType', 'from', 'to', 'messageId']):
+            logger.info("Found flat event schema")
+            
+            if data.get('messageType') == 'text' and 'content' in data:
+                content = data['content']
+                if isinstance(content, dict) and 'text' in content:
+                    text_content = content['text']
+                    if isinstance(text_content, dict) and 'body' in text_content:
+                        text = text_content['body']
+                    elif isinstance(text_content, str):
+                        text = text_content
+                    else:
+                        logger.warning(f"Unexpected text content structure: {text_content}")
+                        return None
+                elif isinstance(content, str):
+                    text = content
+                else:
+                    logger.warning(f"Unexpected content structure: {content}")
+                    return None
+                
+                # Normalize phone number (remove + prefix for internal use)
+                from_number = data['from']
+                if from_number.startswith('+'):
+                    from_number = from_number[1:]
+                
+                return {
+                    "text": text,
+                    "from": from_number,
+                    "to": data['to'],
+                    "channel": "whatsapp",
+                    "message_id": data['messageId'],
+                    "ts": data.get('receivedTimestamp', datetime.now(timezone.utc).isoformat())
+                }
         
-        # Extraer información del mensaje
-        event_type = event.event_type
+        # Schema 2: Evento con data anidada
+        if 'data' in data and isinstance(data['data'], dict):
+            logger.info("Found nested data schema")
+            nested_data = data['data']
+            
+            # Try message.text.body
+            if 'message' in nested_data and isinstance(nested_data['message'], dict):
+                message = nested_data['message']
+                if 'text' in message and isinstance(message['text'], dict) and 'body' in message['text']:
+                    text = message['text']['body']
+                    from_number = nested_data.get('from', '')
+                    if from_number.startswith('+'):
+                        from_number = from_number[1:]
+                    
+                    return {
+                        "text": text,
+                        "from": from_number,
+                        "to": nested_data.get('to', ''),
+                        "channel": "whatsapp",
+                        "message_id": nested_data.get('messageId', ''),
+                        "ts": nested_data.get('receivedTimestamp', datetime.now(timezone.utc).isoformat())
+                    }
+            
+            # Try message.content
+            if 'message' in nested_data and isinstance(nested_data['message'], dict):
+                message = nested_data['message']
+                if 'content' in message and isinstance(message['content'], dict) and 'text' in message['content']:
+                    text = message['content']['text']
+                    from_number = nested_data.get('from', '')
+                    if from_number.startswith('+'):
+                        from_number = from_number[1:]
+                    
+                    return {
+                        "text": text,
+                        "from": from_number,
+                        "to": nested_data.get('to', ''),
+                        "channel": "whatsapp",
+                        "message_id": nested_data.get('messageId', ''),
+                        "ts": nested_data.get('receivedTimestamp', datetime.now(timezone.utc).isoformat())
+                    }
+            
+            # Try message.payload.text
+            if 'message' in nested_data and isinstance(nested_data['message'], dict):
+                message = nested_data['message']
+                if 'payload' in message and isinstance(message['payload'], dict) and 'text' in message['payload']:
+                    text = message['payload']['text']
+                    from_number = nested_data.get('from', '')
+                    if from_number.startswith('+'):
+                        from_number = from_number[1:]
+                    
+                    return {
+                        "text": text,
+                        "from": from_number,
+                        "to": nested_data.get('to', ''),
+                        "channel": "whatsapp",
+                        "message_id": nested_data.get('messageId', ''),
+                        "ts": nested_data.get('receivedTimestamp', datetime.now(timezone.utc).isoformat())
+                    }
         
-        # Filtrar solo eventos de mensajes recibidos
-        if "Microsoft.Communication.AdvancedMessageReceived" not in event_type:
-            logger.info(f"[V2] Evento ignorado (no es mensaje recibido): {event_type}")
-            return
+        # Schema 3: Legacy schema support
+        if 'messageBody' in data and 'from' in data:
+            logger.info("Found legacy schema")
+            text = data['messageBody']
+            from_number = data['from']
+            if from_number.startswith('+'):
+                from_number = from_number[1:]
+            
+            return {
+                "text": text,
+                "from": from_number,
+                "to": data.get('to', ''),
+                "channel": "whatsapp",
+                "message_id": data.get('messageId', ''),
+                "ts": data.get('receivedTimestamp', datetime.now(timezone.utc).isoformat())
+            }
         
-        # Extraer datos del mensaje
-        from_number = event_data.get('from')
-        message_id = event_data.get('messageId') or event_data.get('id')
-        
-        # Obtener el contenido del mensaje
-        content = event_data.get('content')
-        if not content:
-            logger.warning("[V2] No se encontró contenido en el mensaje")
-            return
-        
-        text = content.get('text') or content.get('body')
-        if not text:
-            logger.warning("[V2] No se encontró texto en el contenido del mensaje")
-            return
-        
-        logger.info(f"[V2] Procesando mensaje de {from_number} (ID: {message_id}): {text}")
-        
-        # Obtener handler
-        handler = get_handler()
-        
-        # MODO RAG DIRECTO (como CLI línea 167)
-        # Usar _rag_answer directamente sin pasar por intents
-        try:
-            logger.info(f"[V2] Llamando a handler._rag_answer('{text}')")
-            ai_response = handler._rag_answer(text)
-            logger.info(f"[V2] Respuesta RAG generada: {ai_response[:100]}...")
-        except Exception as e:
-            logger.error(f"[V2] Error en _rag_answer: {e}", exc_info=True)
-            ai_response = "Lo siento, tuve un problema procesando tu consulta. Por favor contacta al equipo de Iglesia VEA."
-        
-        # Enviar respuesta por WhatsApp
-        try:
-            success = handler.acs_service.send_text_message(from_number, ai_response)
-            if success:
-                logger.info(f"[V2] Mensaje enviado correctamente a {from_number}")
-            else:
-                logger.error(f"[V2] Error enviando mensaje a {from_number}")
-        except Exception as e:
-            logger.error(f"[V2] Error enviando mensaje WhatsApp: {e}", exc_info=True)
-        
-        logger.info(f"[V2] Procesamiento completado para mensaje {message_id}")
+        # If no schema matches, log warning with found keys
+        found_keys = list(data.keys())
+        logger.warning(f"No matching schema found. Available keys: {found_keys}")
+        return None
         
     except Exception as e:
-        logger.error(f"[V2] Error procesando evento: {e}", exc_info=True)
-        raise
+        logger.error(f"Error extracting message data: {e}")
+        return None
 
+def _get_conversation_history(phone_number: str) -> List[Dict[str, str]]:
+    """
+    Get conversation history from Redis cache.
+    
+    Args:
+        phone_number: User's phone number
+        
+    Returns:
+        List of conversation messages
+    """
+    try:
+        # For now, return empty history
+        # TODO: Implement Redis integration
+        return []
+    except Exception as e:
+        logger.error(f"Error getting conversation history: {e}")
+        return []
+
+def _update_conversation_history(phone_number: str, user_message: str, bot_response: str) -> bool:
+    """
+    Update conversation history in Redis cache.
+    
+    Args:
+        phone_number: User's phone number
+        user_message: User's message
+        bot_response: Bot's response
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # For now, just log the conversation
+        logger.info(f"Conversation update for {phone_number}: User: {user_message[:50]}... Bot: {bot_response[:50]}...")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating conversation history: {e}")
+        return False
+
+def _get_rag_context(query: str) -> Optional[str]:
+    """
+    Get RAG context for the query using Azure Search directly.
+    
+    Args:
+        query: User's query
+        
+    Returns:
+        RAG context or None
+    """
+    try:
+        if not RAG_ENABLED:
+            logger.info("RAG is disabled, skipping vector search")
+            return None
+        
+        logger.info(f"Performing Azure Search for query: {query}")
+        
+        # Get Azure Search configuration
+        search_endpoint = os.getenv('AZURE_SEARCH_ENDPOINT')
+        search_key = os.getenv('AZURE_SEARCH_KEY')
+        search_index = os.getenv('AZURE_SEARCH_INDEX_NAME')
+        
+        if not all([search_endpoint, search_key, search_index]):
+            logger.error("Azure Search configuration missing")
+            return None
+        
+        try:
+            from azure.core.credentials import AzureKeyCredential
+            from azure.search.documents import SearchClient
+            
+            # Initialize Azure Search client
+            search_client = SearchClient(
+                endpoint=search_endpoint,  # type: ignore
+                index_name=search_index,  # type: ignore
+                credential=AzureKeyCredential(search_key)  # type: ignore
+            )
+            
+            # Perform VECTOR search EXACTAMENTE como CLI
+            # Paso 1: Generar embedding del query (como EmbeddingManager.find_similar línea 108)
+            openai_key = os.environ.get('AZURE_OPENAI_KEY')
+            openai_endpoint = os.environ.get('AZURE_OPENAI_ENDPOINT')
+            embedding_deployment = os.environ.get('AZURE_OPENAI_EMBEDDING_DEPLOYMENT', 'text-embedding-ada-002')
+            
+            if not openai_key or not openai_endpoint:
+                logger.error("OpenAI configuration missing for embeddings")
+                return None
+            
+            from openai import AzureOpenAI
+            openai_client = AzureOpenAI(
+                api_key=openai_key,
+                api_version="2024-02-15-preview",
+                azure_endpoint=openai_endpoint
+            )
+            
+            embedding_response = openai_client.embeddings.create(
+                input=query,
+                model=embedding_deployment
+            )
+            query_embedding = embedding_response.data[0].embedding
+            
+            # Paso 2: Búsqueda vectorial (como AzureSearchClient.search_vector línea 198-213)
+            search_options = {
+                "vector_queries": [{
+                    "vector": query_embedding,
+                    "fields": "embedding",
+                    "k": 5,
+                    "kind": "vector"
+                }],
+                "select": ["id", "content", "embedding", "created_at"],
+                "top": 5
+            }
+            
+            search_results = search_client.search(search_text="", **search_options)
+            
+            # Paso 3: Extraer contexto (como handlers._rag_answer línea 652-660)
+            context_parts = []
+            for result in search_results:
+                try:
+                    # CLI línea 655: h.get('text') or h.get('content')
+                    txt = (result.get('text') or result.get('content') or '').strip()
+                except Exception:
+                    txt = ''
+                if txt:
+                    context_parts.append(f"- {txt}")  # Sin truncar, como CLI línea 659
+            
+            if context_parts:
+                context = "\n".join(context_parts)[:4000]  # Límite 4000 como CLI línea 660
+                logger.info(f"[V2] Generated RAG context with {len(context)} characters from {len(context_parts)} results")
+                return str(context)
+            else:
+                logger.info("[V2] No relevant context found in Azure Search results")
+                return None
+                
+        except ImportError:
+            logger.error("Azure Search SDK not available")
+            return None
+        except Exception as e:
+            logger.error(f"Error searching Azure Search: {e}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error getting RAG context: {e}")
+        return None
+
+def _generate_hmac_signature(access_key: str, url: str, method: str = 'POST', content: str = '') -> str:
+    """
+    Generate HMAC signature for Azure Communication Services.
+    
+    Args:
+        access_key: ACS access key
+        url: Full URL including query parameters
+        method: HTTP method (default: POST)
+        content: Request body content
+        
+    Returns:
+        HMAC signature string
+    """
+    try:
+        # Parse URL to get path and query
+        from urllib.parse import urlparse, parse_qs
+        
+        parsed_url = urlparse(url)
+        path_and_query = parsed_url.path
+        if parsed_url.query:
+            path_and_query += '?' + parsed_url.query
+        
+        # Create string to sign
+        string_to_sign = f"{method}\n{path_and_query}\n{content}"
+        
+        # Decode access key from base64
+        key_bytes = base64.b64decode(access_key)
+        
+        # Create HMAC signature
+        signature = hmac.new(key_bytes, string_to_sign.encode('utf-8'), hashlib.sha256)
+        signature_bytes = signature.digest()
+        
+        # Encode signature to base64
+        signature_b64 = base64.b64encode(signature_bytes).decode('utf-8')
+        
+        return signature_b64
+        
+    except Exception as e:
+        logger.error(f"Error generating HMAC signature: {e}")
+        return ""
+
+def _generate_ai_response(user_message: str, conversation_history: List[Dict[str, str]], rag_context: Optional[str] = None) -> str:
+    """
+    Generate AI response using OpenAI.
+    
+    Args:
+        user_message: User's message
+        conversation_history: Conversation history
+        rag_context: RAG context
+        
+    Returns:
+        Generated response
+    """
+    try:
+        logger.info(f"Generating AI response for: {user_message}")
+        
+        # Check if OpenAI is configured
+        openai_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+        openai_key = os.getenv('AZURE_OPENAI_API_KEY')
+        openai_deployment = os.getenv('AZURE_OPENAI_CHAT_DEPLOYMENT')
+        
+        if not all([openai_endpoint, openai_key, openai_deployment]):
+            logger.warning("OpenAI not configured, using fallback response")
+            return f"Hola! Recibí tu mensaje: '{user_message}'. Soy el asistente virtual de VEA Connect. ¿En qué puedo ayudarte?"
+        
+        # Import OpenAI client
+        try:
+            from openai import AzureOpenAI
+            import httpx
+        except ImportError:
+            logger.error("OpenAI library not available")
+            return "Lo siento, el servicio de IA no está disponible en este momento."
+        
+        # Initialize OpenAI client with custom http_client to avoid proxies issue
+        http_client = httpx.Client(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+        )
+        
+        client = AzureOpenAI(
+            azure_endpoint=openai_endpoint,  # type: ignore
+            api_key=openai_key,  # type: ignore
+            api_version=os.getenv('AZURE_OPENAI_CHAT_API_VERSION', '2024-02-15-preview'),
+            http_client=http_client
+        )
+        
+        # EXACTAMENTE como CLI handlers._rag_answer líneas 647-673
+        
+        # Si no hay contexto RAG, retornar mensaje directo (CLI línea 649)
+        if not rag_context:
+            logger.info("[V2] No RAG context available - returning no info message")
+            return "No encontré información relevante en el índice."
+        
+        logger.info(f"[V2] RAG context available: {len(rag_context)} characters")
+        
+        # [GUARD-DEFINITIONS] Verificar preguntas tipo "¿Qué es X?" o "¿Qué significa X?"
+        # Si X no aparece en el contexto, no inferir - devolver "no hay información"
+        import re
+        definition_pattern = r'(?:qué\s+es|qué\s+significa|define|definición\s+de)\s+([A-ZÑ]{2,6})\b'
+        match = re.search(definition_pattern, user_message, re.IGNORECASE)
+        if match:
+            term = match.group(1).upper()
+            # Verificar si el término aparece literalmente en el contexto (case-insensitive)
+            if term.lower() not in rag_context.lower():
+                logger.info(f"[GUARD-DEFINITIONS] Term '{term}' not found in context - blocking inference")
+                return f"No encontré información sobre '{term}' en el índice."
+        
+        # Build messages EXACTAMENTE como CLI línea 667-670
+        messages = [
+            {"role": "system", "content": BOT_SYSTEM_PROMPT},  # CLI línea 668
+            {"role": "user", "content": f"Contexto:\n{rag_context}\n\nPregunta: {user_message}"}  # CLI línea 669
+        ]
+        
+        logger.info(f"[V2] Sending request to OpenAI with {len(messages)} messages")
+        
+        # Generate response con parámetros EXACTOS del CLI línea 671
+        response = client.chat.completions.create(
+            model=openai_deployment,  # type: ignore
+            messages=messages,  # type: ignore
+            max_tokens=350,  # CLI línea 671
+            temperature=0.2  # CLI línea 671
+        )
+        
+        if response.choices and response.choices[0].message and response.choices[0].message.content:
+            ai_response = response.choices[0].message.content.strip()
+            logger.info(f"Generated AI response: {ai_response[:100]}...")
+            return ai_response
+        else:
+            logger.error("No response content from OpenAI")
+            return "Lo siento, no pude generar una respuesta. Por favor intenta de nuevo."
+            
+    except Exception as e:
+        logger.error(f"Error generating AI response: {e}")
+        return "Lo siento, estoy teniendo problemas para procesar tu mensaje. Por favor, intenta de nuevo más tarde."
+
+def _send_whatsapp_text(to_number: str, text: str) -> bool:
+    """
+    Send WhatsApp text message using ACS.
+    
+    Args:
+        to_number: Recipient phone number (without +)
+        text: Message text
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Get configuration from environment variables
+        conn_string = os.getenv('ACS_CONNECTION_STRING')
+        from_id = os.getenv('ACS_PHONE_NUMBER')  # Use ACS_PHONE_NUMBER instead of ACS_WHATSAPP_FROM
+        
+        # Check for missing environment variables
+        missing_vars = []
+        if not conn_string:
+            missing_vars.append('ACS_CONNECTION_STRING')
+        if not from_id:
+            missing_vars.append('ACS_PHONE_NUMBER')
+        
+        if missing_vars:
+            logger.error(f"Missing ACS configuration variables: {missing_vars}")
+            return False
+        
+        # Ensure to_number has + prefix for ACS
+        if to_number and not to_number.startswith('+'):
+            to_number = '+' + to_number
+        
+        # Ensure from_id has + prefix for ACS
+        if from_id and not from_id.startswith('+'):
+            from_id = '+' + from_id
+        
+        logger.info(f"Using ACS SDK: {ACS_SDK_AVAILABLE}")
+        
+        # Force SDK usage if available
+        if ACS_SDK_AVAILABLE:
+            # Use Azure Communication Advanced Messages SDK
+            try:
+                # Get channel registration ID
+                channel_registration_id = os.getenv('WHATSAPP_CHANNEL_ID_GUID')
+                if not channel_registration_id:
+                    logger.error("Missing WHATSAPP_CHANNEL_ID_GUID environment variable")
+                    return False
+                
+                # Create the messaging client
+                if not conn_string:
+                    logger.error("Connection string is None")
+                    return False
+                messaging_client = NotificationMessagesClient.from_connection_string(conn_string)
+                
+                # Create text notification content with channel registration ID
+                text_options = TextNotificationContent(
+                    channel_registration_id=channel_registration_id,
+                    to=[to_number],
+                    content=text
+                )
+                
+                # Send the message
+                message_responses = messaging_client.send(text_options)
+                response = message_responses.receipts[0]
+                
+                if response is not None:
+                    logger.info(f"WhatsApp message sent successfully to {to_number} using Advanced Messages SDK")
+                    logger.info(f"Message ID: {response.message_id}")
+                    return True
+                else:
+                    logger.error("Message failed to send via SDK")
+                    return False
+                
+            except Exception as sdk_error:
+                logger.error(f"Advanced Messages SDK error: {sdk_error}")
+                logger.info("Falling back to HTTP method")
+                # Fall through to HTTP method
+        else:
+            logger.info("SDK not available, using HTTP method")
+        
+        # HTTP Fallback method with proper HMAC signature
+        logger.info("Using HTTP method with HMAC signature")
+        
+        # Extract endpoint and access key from connection string
+        # Format: "endpoint=https://...;accesskey=..."
+        if conn_string:
+            conn_parts = conn_string.split(';')
+            endpoint = None
+            access_key = None
+            
+            for part in conn_parts:
+                if part.startswith('endpoint='):
+                    endpoint = part.split('=', 1)[1]
+                elif part.startswith('accesskey='):
+                    access_key = part.split('=', 1)[1]
+        else:
+            endpoint = None
+            access_key = None
+        
+        if not endpoint or not access_key:
+            logger.error("Could not parse ACS_CONNECTION_STRING")
+            return False
+        
+        # Clean up endpoint URL (remove trailing slash if present)
+        if endpoint and endpoint.endswith('/'):
+            endpoint = endpoint.rstrip('/')
+        
+        # Prepare the message payload
+        payload = {
+            "content": text,
+            "from": from_id,
+            "to": [to_number]
+        }
+        
+        # Convert payload to JSON string
+        payload_json = json.dumps(payload)
+        
+        # Build URL with API version
+        url = f"{endpoint}/messages?api-version=2024-02-15-preview"
+        
+        logger.info(f"Using endpoint: {endpoint}")
+        logger.info(f"Using API version: 2024-02-15-preview")
+        
+        # Generate HMAC signature
+        signature = _generate_hmac_signature(access_key, url, 'POST', payload_json)
+        
+        if not signature:
+            logger.error("Failed to generate HMAC signature")
+            return False
+        
+        # Create headers with HMAC signature
+        headers = {
+            'Authorization': f'HMAC-SHA256 {signature}',
+            'Content-Type': 'application/json; charset=utf-8',
+            'x-ms-date': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        }
+        
+        logger.info(f"Sending WhatsApp message via HTTP to URL: {url}")
+        logger.info(f"Payload: {payload_json}")
+        logger.info(f"Headers: {headers}")
+        
+        # Add retry logic for connection issues
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempt {attempt + 1} of {max_retries}")
+                response = requests.post(url, json=payload, headers=headers, timeout=30)
+                break
+            except requests.exceptions.ConnectionError as conn_error:
+                logger.error(f"Connection error on attempt {attempt + 1}: {conn_error}")
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(1)  # Wait before retry
+            except requests.exceptions.ReadTimeout as timeout_error:
+                logger.error(f"Timeout error on attempt {attempt + 1}: {timeout_error}")
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(1)  # Wait before retry
+        
+        if response.status_code == 202:
+            logger.info(f"WhatsApp message sent successfully to {to_number} via HTTP")
+            return True
+        elif response.status_code == 200:
+            logger.info(f"WhatsApp message sent successfully to {to_number} via HTTP (200 OK)")
+            return True
+        else:
+            logger.error(f"Failed to send WhatsApp message via HTTP. Status: {response.status_code}")
+            logger.error(f"Response headers: {dict(response.headers)}")
+            logger.error(f"Response body: {response.text[:1000]}...")
+            
+            # Log specific error details
+            try:
+                error_data = response.json()
+                logger.error(f"Error details: {json.dumps(error_data, indent=2)}")
+            except:
+                logger.error(f"Could not parse error response as JSON")
+            
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error sending WhatsApp message: {e}")
+        return False
+
+def _send_whatsapp_image(to_number: str, image_url: str, caption: str = "") -> bool:
+    """
+    Send WhatsApp image message using ACS Advanced Messages SDK.
+    
+    Args:
+        to_number: Recipient phone number (without +)
+        image_url: URL of the image to send
+        caption: Optional caption for the image
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Get configuration from environment variables
+        conn_string = os.getenv('ACS_CONNECTION_STRING')
+        channel_registration_id = os.getenv('WHATSAPP_CHANNEL_ID_GUID')
+        
+        # Check for missing environment variables
+        missing_vars = []
+        if not conn_string:
+            missing_vars.append('ACS_CONNECTION_STRING')
+        if not channel_registration_id:
+            missing_vars.append('WHATSAPP_CHANNEL_ID_GUID')
+        
+        if missing_vars:
+            logger.error(f"Missing ACS configuration variables: {missing_vars}")
+            return False
+        
+        # Ensure to_number has + prefix for ACS
+        if to_number and not to_number.startswith('+'):
+            to_number = '+' + to_number
+        
+        logger.info(f"Using ACS Advanced Messages SDK for image: {ACS_SDK_AVAILABLE}")
+        
+        if ACS_SDK_AVAILABLE:
+            # Use Azure Communication Advanced Messages SDK
+            try:
+                # Create the messaging client
+                if not conn_string:
+                    logger.error("Connection string is None")
+                    return False
+                messaging_client = NotificationMessagesClient.from_connection_string(conn_string)
+                
+                # Create image notification content
+                if not channel_registration_id:
+                    logger.error("Channel registration ID is None")
+                    return False
+                image_options = ImageNotificationContent(
+                    channel_registration_id=channel_registration_id,
+                    to=[to_number],
+                    media_uri=image_url
+                )
+                
+                # Send the message
+                message_responses = messaging_client.send(image_options)
+                response = message_responses.receipts[0]
+                
+                if response is not None:
+                    logger.info(f"WhatsApp image message sent successfully to {to_number} using Advanced Messages SDK")
+                    logger.info(f"Message ID: {response.message_id}")
+                    return True
+                else:
+                    logger.error("Image message failed to send via SDK")
+                    return False
+                
+            except Exception as sdk_error:
+                logger.error(f"Advanced Messages SDK error for image: {sdk_error}")
+                return False
+        else:
+            logger.error("Advanced Messages SDK not available for image sending")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error sending WhatsApp image message: {e}")
+        return False
+
+def main(event: func.EventGridEvent) -> None:
+    """
+    WhatsApp Event Grid trigger handler.
+    Processes incoming WhatsApp messages via ACS Advanced Messaging.
+    
+    Args:
+        event: Event Grid event containing WhatsApp message data
+    """
+    start_time = time.time()
+    
+    # Log event details
+    logger.info(f"Event received - Type: {event.event_type}, Subject: {event.subject}, ID: {event.id}")
+    
+    # Log payload size for debugging
+    payload_str = json.dumps(event.get_json())
+    payload_size = len(payload_str)
+    logger.info(f"Payload size: {payload_size} bytes")
+    
+    # Log truncated payload if debug enabled
+    if E2E_DEBUG and payload_size > 0:
+        truncated_payload = payload_str[:2000] + "..." if len(payload_str) > 2000 else payload_str
+        logger.info(f"Payload (truncated): {truncated_payload}")
+    
+    try:
+        # Handle SubscriptionValidation events
+        if event.event_type == "Microsoft.EventGrid.SubscriptionValidationEvent":
+            logger.info("[V2] Processing subscription validation event")
+            
+            # Extract validation code
+            data = event.get_json()
+            validation_code = data.get('validationCode')
+            
+            if validation_code:
+                # Return validation response
+                response_data = {
+                    "validationResponse": validation_code
+                }
+                
+                # Return the response (Event Grid will handle this)
+                logger.info("Subscription validation successful")
+                return None
+            else:
+                logger.error("No validation code found in subscription validation event")
+                return None
+        
+        # Handle Advanced Message Received events
+        if event.event_type == "Microsoft.Communication.AdvancedMessageReceived":
+            logger.info("[V2] Processing Advanced Message Received event")
+            
+            # Parse event data
+            data = event.get_json()
+            
+            # Extract message data with tolerant parser
+            normalized = _extract_message_data_tolerant(data)
+            if not normalized:
+                logger.warning("Could not extract message data from event")
+                return None
+            
+            text = normalized['text']
+            from_number = normalized['from']
+            message_id = normalized['message_id']
+            
+            logger.info(f"[V2] Processing message from {from_number} (ID: {message_id}): {text}")
+            
+            # Get conversation history
+            conversation_history = _get_conversation_history(from_number)
+            
+            # Get RAG context if enabled
+            rag_context = _get_rag_context(text)
+            
+            # Generate AI response
+            ai_response = _generate_ai_response(text, conversation_history, rag_context)
+            
+            # Update conversation history
+            _update_conversation_history(from_number, text, ai_response)
+            
+            # Send WhatsApp response
+            success = _send_whatsapp_text(from_number, ai_response)
+            
+            # Log the response and status
+            logger.info(f"Response sent: {ai_response[:100]}...")
+            logger.info(f"Send status: {success}")
+            
+            if success:
+                logger.info(f"Message processing completed successfully for {from_number}")
+            else:
+                logger.error(f"Failed to send response to {from_number}")
+            
+            # Log processing time
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"Total processing time: {processing_time_ms}ms")
+            
+        else:
+            logger.info(f"Ignoring event type: {event.event_type}")
+        
+    except Exception as e:
+        logger.exception(f"Error processing WhatsApp event: {e}")
+        raise  # Re-raise for Event Grid retry
