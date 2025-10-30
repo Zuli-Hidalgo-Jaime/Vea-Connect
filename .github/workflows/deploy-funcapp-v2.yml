@@ -7,7 +7,7 @@ on:
   workflow_dispatch:  # Permitir ejecución manual desde GitHub Actions
 
 env:
-  AZURE_FUNCTIONAPP_NAME: funcapp-vea-v2
+  AZURE_FUNCTIONAPP_NAME: funcapp-vea-prod2
   AZURE_FUNCTIONAPP_PACKAGE_PATH: 'functions-v2'
   PYTHON_VERSION: '3.11'
 
