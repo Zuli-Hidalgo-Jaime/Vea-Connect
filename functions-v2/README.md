@@ -119,3 +119,6 @@ Si algo falla, simplemente:
 2. Deshabilitar Event Grid subscription de `funcapp-vea-v2`
 3. El tráfico volverá a V1 inmediatamente
 
+
+
+

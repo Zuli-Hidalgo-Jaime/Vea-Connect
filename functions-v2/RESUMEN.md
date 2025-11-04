@@ -240,3 +240,6 @@ Después de completar todos los pasos:
 ✅ Mismo número de WhatsApp que V1  
 ✅ Fácil rollback si algo falla  
 
+
+
+

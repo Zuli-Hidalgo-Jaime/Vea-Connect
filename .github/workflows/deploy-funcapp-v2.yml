@@ -32,7 +32,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt --target=".python_packages/lib/site-packages"
         popd
-
     - name: 'Deploy a Azure Functions'
       uses: Azure/functions-action@v1
       with:
@@ -44,7 +43,6 @@ jobs:
 
     - name: 'Verificar deployment'
       run: |
-        echo "✅ Deployment completado a ${{ env.AZURE_FUNCTIONAPP_NAME }}"
-        echo "📦 Paquete desplegado desde: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
-        echo "🐍 Python version: ${{ env.PYTHON_VERSION }}"
-
+        echo "Deployment completado a ${{ env.AZURE_FUNCTIONAPP_NAME }}"
+        echo "Paquete desplegado desde: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
+        echo "Python version: ${{ env.PYTHON_VERSION }}"

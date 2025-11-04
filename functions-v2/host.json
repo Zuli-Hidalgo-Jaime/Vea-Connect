@@ -10,7 +10,12 @@
     "logLevel": {
       "": "Information",
       "functions": "Information",
-      "functions.whatsapp_event_grid_trigger": "Information"
+      "functions.whatsapp_event_grid_trigger": "Information",
+      "functions.create_embedding": "Information",
+      "functions.get_stats": "Information",
+      "functions.search_similar": "Information",
+      "functions.health": "Information",
+      "functions.embeddings_health_check": "Information"
     }
   },
   "extensionBundle": {
@@ -21,5 +26,6 @@
   "http": {
     "routePrefix": "api"
   }
-}
+} 
+
 

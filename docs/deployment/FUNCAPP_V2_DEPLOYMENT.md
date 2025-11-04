@@ -327,3 +327,6 @@ Si tienes problemas:
 2. Buscar `[V2]` en Application Insights
 3. Hacer rollback a V1 si es crítico
 
+
+
+
