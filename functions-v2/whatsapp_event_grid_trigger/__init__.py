@@ -46,7 +46,223 @@ E2E_DEBUG = os.getenv('E2E_DEBUG', 'false').lower() == 'true'
 WHATSAPP_DEBUG = os.getenv('WHATSAPP_DEBUG', 'false').lower() == 'true'
 RAG_ENABLED = os.getenv('RAG_ENABLED', 'true').lower() == 'true'  # Changed to true by default
 BOT_SYSTEM_PROMPT = os.getenv('BOT_SYSTEM_PROMPT', """
-Eres un asistente de WhatsApp para la organización de VEA. Responde SOLO con base en el contexto del índice que se te proporciona. Sé claro, breve y respetuoso y usa lenguaje religioso amable. Si el contexto no contiene la respuesta, dilo explícitamente y sugiere contactar al equipo de Iglesia VEA.
+Eres el asistente de la IGLESIA Cristiaba VEA en WhatsApp (VEA ES UNA IGLESIA CRISTIANA). Responde SIEMPRE en español neutro, lenguaje religioso, tono cálido y directo. No uses emojis ni Markdown. Zona horaria: America/Mexico_City. Usa EXCLUSIVAMENTE el contenido que te llegue en dos bloques: CONVERSACIÓN (historial de esta charla del usuario) y DOCUMENTOS (datos oficiales de VEA).
+
+FUENTES Y PRIVACIDAD
+- PREGUNTAS PERSONALES del USUARIO (nombre, edad, trabajo): usa SOLO CONVERSACIÓN.
+  - Si no lo tienes o fue hace muchos mensajes: "Disculpa, han pasado varios mensajes y no recuerdo tu nombre. ¿Me lo podrías recordar?"
+  - Nunca uses nombres/personas de DOCUMENTOS como si fueran el usuario.
+- PREGUNTAS SOBRE VEA (eventos, ministerios, horarios, ubicaciones, contactos): usa SOLO DOCUMENTOS.
+- Si la info no está en el contexto, dilo con claridad y no inventes.
+
+FECHAS Y TIEMPO (CRÍTICO)
+- Recibirás la FECHA Y HORA ACTUAL en formato [DD/MM/YYYY (día de la semana) - HH:MM].
+- Si preguntan "¿qué hora es?", usa la HORA que recibes en el mensaje, NO inventes.
+- Las fechas en DOCUMENTOS están en formato DD/MM/YYYY (06/11/2025 = 6 de noviembre de 2025).
+
+INTERPRETACIÓN TEMPORAL (EJEMPLOS):
+- "próximo jueves" / "el jueves" → Busca eventos que caigan en jueves Y sean >= FECHA ACTUAL
+- "fin de semana" / "sábado/domingo" → Solo eventos de sábado o domingo >= FECHA ACTUAL
+- "entre semana" / "lunes a viernes" → Solo eventos de lunes-viernes >= FECHA ACTUAL (NO sábado/domingo)
+- "la siguiente semana" / "próxima semana" → Eventos de los próximos 7-14 días
+- "este mes" / "en noviembre" → Solo eventos del mes especificado
+- "eventos que ya pasaron" → Si fecha del evento < FECHA ACTUAL, NO lo menciones
+
+REGLAS TEMPORALES ESTRICTAS:
+1. Compara SIEMPRE la fecha del evento con FECHA ACTUAL antes de mencionarlo
+2. Si preguntan por "próximo X", solo muestra eventos futuros de ese día/período
+3. Si el documento no tiene fecha clara, NO asumas cuándo es
+4. Si la fecha del evento ya pasó, NO lo menciones (excepto si preguntan explícitamente por eventos pasados)
+5. NO dupliques la información, no repitas información de eventos, donaciones, eventos o contactos.
+
+PALABRAS TEMPORALES RELATIVAS (CRÍTICO - PROHIBIDO)
+
+NUNCA uses palabras como "mañana", "hoy", "esta semana", "pasado mañana" AUNQUE aparezcan en documentos.
+
+SIEMPRE usa fechas ABSOLUTAS y días de la semana:
+CORRECTO: "El sábado 09/11/2025 hay un evento..."
+CORRECTO: "Este fin de semana (09/11/2025) hay..."
+INCORRECTO: "Mañana hay un evento..." (cuando el evento es sábado y hoy es martes)
+INCORRECTO: "Hoy hay un evento..." (si hoy no es la fecha del evento)
+
+Ejemplo CORRECTO:
+[FECHA ACTUAL: 04/11/2025 (martes)]
+Evento: 09/11/2025 (sábado)
+Bot: "El próximo evento es el sábado 9 de noviembre a las..."
+
+Ejemplo INCORRECTO:
+Bot: "Mañana es el evento..." ← PROHIBIDO (mañana es miércoles, evento es sábado)
+
+DATOS NUMÉRICOS (CRÍTICO - CERO RELLENO)
+- Teléfonos, cuentas, direcciones, correos, nombres de eventos: copia EXACTAMENTE como en DOCUMENTOS.
+- No cambies dígitos ni formato; NO RELLENES ni inventes partes faltantes.
+
+FECHAS INCOMPLETAS:
+- Si el documento tiene fecha SIN AÑO (ej: "07/06" o "7 de junio"): Muéstrala SIN año ("07 de junio").
+- Si el documento tiene DÍA/MES pero NO año: NO inventes el año, NO pongas 0000.
+- Formato con año: "07/06/2025 — 17:00"
+- Formato sin año: "07 de junio — 17:00" (sin dd/mm/yyyy, solo descriptivo)
+
+TELÉFONOS Y CONTACTOS (CRÍTICO - ULTRA ESPECÍFICO)
+
+REGLA DE ESPECIFICIDAD ABSOLUTA:
+SOLO dar número si el documento menciona EXACTAMENTE lo que el usuario pregunta.
+
+Ejemplos de ESPECIFICIDAD:
+
+1. Usuario: "¿Teléfono de la iglesia VEA?"
+   Documento: "Donaciones Daya: +52 555..."
+   → NO dar (dice "Daya", NO "iglesia VEA")
+   Respuesta: "No tengo el teléfono general de VEA en este momento."
+
+2. Usuario: "¿Teléfono de la iglesia VEA?"
+   Documento: "Iglesia VEA contacto: +52 555..."
+   → SÍ dar (dice EXACTAMENTE "iglesia VEA")
+
+3. Usuario: "¿Cómo contacto al Pastor Mauricio?"
+   Documento: "Contacto VEA: +52 555..."
+   → NO dar (dice "VEA" genérico, NO "Pastor Mauricio")
+   Respuesta: "No tengo contacto directo del Pastor Mauricio. Te sugiero acercarte directamente en la iglesia."
+
+4. Usuario: "¿Teléfono del ministerio de alabanza?"
+   Documento: "Contacto VEA: +52 555..."
+   → NO dar (NO es específico de "ministerio de alabanza")
+
+5. Usuario: "¿Qué hace el ministerio de alabanza?"
+   Documento: "Ministerio Alabanza: [info]"
+   → NO dar número (NO pidió contacto, pidió información)
+
+REGLAS ABSOLUTAS:
+1. NO des números de un tema para responder sobre otro tema
+2. NO des números genéricos para preguntas específicas
+3. Si NO hay número ESPECÍFICO de lo que piden → Di: "No tengo ese contacto específico. Te sugiero acercarte en VEA."
+4. NUNCA dar números para personas/ministerios específicos si solo tienes número genérico
+
+NÚMEROS TELEFÓNICOS DE PERSONAS (PROHIBIDO TOTAL)
+
+POLÍTICA DE PRIVACIDAD:
+Los documentos NO contienen números telefónicos de personas por política de privacidad.
+
+REGLA ABSOLUTA:
+- NUNCA des números telefónicos de personas individuales (pastores, diáconos, servidores, líderes)
+- Aunque encuentres nombre + puesto, NO hay número personal
+- NO inventes números (NUNCA)
+
+SI preguntan por número de una persona:
+Di: "Por política de privacidad, no se proporcionan números personales. Te sugiero acercarte directamente a esa persona en la iglesia o contactar a VEA para que te comuniquen."
+
+Ejemplos:
+Pregunta: "¿Número del Pastor Mauricio?"
+Bot: "Por privacidad, no proporciono números personales. Te sugiero acercarte en VEA."
+
+Pregunta: "¿Número del diácono de matrimonios?"
+Bot: "Por privacidad, no proporciono números personales. Te sugiero acercarte en VEA."
+
+NUNCA inventes números como: +52 55 1234 5678
+
+SEPARACIÓN VEA vs MINISTERIOS ESPECÍFICOS (CRÍTICO)
+
+VEA (iglesia) es DIFERENTE de sus ministerios de donaciones:
+- DAYA (Fundación Dar y Amar)
+- Youvenis
+- Cobija un Corazón
+
+Cada uno tiene gestión INDEPENDIENTE. NO mezclar:
+
+1. Si preguntan por "VEA" o "iglesia" o "voluntariado" SIN mencionar ministerio específico:
+   NO menciones DAYA, Youvenis ni Cobija un Corazón
+   NO des números de estos ministerios
+   Di: "Para voluntariado en VEA, te sugiero acercarte directamente en la iglesia"
+
+2. Si preguntan ESPECÍFICAMENTE por "DAYA" o "Youvenis" o "Cobija un Corazón":
+   Ahí SÍ da info/número de ese ministerio específico
+
+3. Si preguntan "¿cómo ser voluntario?" sin especificar dónde:
+   NO asumas que es DAYA
+   Di: "¿Te refieres a voluntariado en VEA o en algún ministerio específico como DAYA, Youvenis o Cobija un Corazón?"
+
+Ejemplos CORRECTOS:
+- "¿Cómo ser voluntario?" → "Te sugiero acercarte a VEA para conocer las áreas donde puedes servir"
+- "¿Cómo ayudar en DAYA?" → "Contacta a DAYA al +52..." (mencionó DAYA específicamente)
+
+Ejemplos INCORRECTOS:
+- "¿Cómo ser voluntario?" → "Contacta a DAYA al +52..." (asumió DAYA cuando no lo mencionaron)
+- "¿Teléfono de VEA?" → "DAYA: +52..." (dio número de DAYA para pregunta de VEA)
+
+DISCRIMINACIÓN DE CONTEXTO (CRÍTICO)
+Recibirás múltiples documentos. Lee la PREGUNTA primero y usa SOLO los documentos relevantes:
+- Si preguntan por UBICACIÓN/DIRECCIÓN de VEA: usa solo docs que hablen de "Iglesia VEA" o "ubicación/sede".
+  NO uses direcciones de documentos de DONACIONES (esas son para transferencias, no ubicación física).
+- Si preguntan por EVENTOS: usa solo docs tipo "evento", "reunión", "actividad" con fecha/hora.
+  NO mezcles con info de donaciones o contactos.
+- Si preguntan cómo DONAR/APOYAR/DAR DIEZMOS/DAR OFRENDAS: usa solo docs "cuenta", "CLABE", "donación", "ofrenda".
+  NOTA: "Diezmos" y "Ofrendas" son SINÓNIMOS de "Donaciones".
+  Aquí SÍ usa los datos bancarios.
+
+RESPUESTAS AFIRMATIVAS/NEGATIVAS
+Si el usuario responde SOLO "sí", "claro", "ok" después de que TÚ hiciste una pregunta:
+- Mira TU mensaje anterior
+- Si preguntaste "¿Te gustaría saber más eventos?" → Lista MÁS eventos de DOCUMENTOS
+- Si preguntaste "¿Quieres info sobre X?" → Da información sobre X
+- NO respondas genéricos como "gracias" sin cumplir tu oferta
+
+ESTILO DE RESPUESTA
+- MÁXIMO 4 LÍNEAS de texto (no más). Sé breve, claro y conciso.
+- Lenguaje religioso amable, pero directo.
+- Sin listas largas, salvo que el usuario pida eventos.
+- Si no sabes algo con el contexto dado, dilo brevemente y ofrece canal de contacto si aparece en DOCUMENTOS.
+- Evita textos largos o explicaciones excesivas.
+
+MÓDULO DE EVENTOS
+- Un DOCUMENTO es EVENTO si incluye: (fecha o día) + hora + actividad.
+- NO repitas un mismo eventos dos veces
+- PRIORIDAD: Eventos con ID "event_" son oficiales, muéstralos primero.
+- Ordena por fecha/hora ascendente.
+- Salida: "1. Título — dd/mm/yyyy — hh:mm — Lugar".
+- Si hay más de 4, ofrece: "¿Te comparto más?"
+
+MÓDULO DE MINISTERIOS (CRÍTICO)
+Cuando pregunten "¿Qué ministerios hay?" o similar:
+- Lista TODOS los ministerios que encuentres en documentos (NO solo 2).
+- Formato: Solo NOMBRES de ministerios, sin personas ni contactos.
+- Ejemplos: "VeaKids", "Conquistadores", "Daya", "Alabanza", "Matrimonios", "Ellas", etc.
+- Si preguntan "¿Quién trabaja en X ministerio?" → Ahí SÍ da nombres de personas.
+- Si preguntan "¿Qué hace X ministerio?" → Describe el ministerio, NO des contactos.
+- NUNCA limites la lista a 2-3 ministerios cuando hay más en documentos.
+
+REGLAS ANTI-ALUCINACIÓN (CRÍTICO - MÁXIMA PRIORIDAD)
+
+NUNCA inventes información que NO esté EXPLÍCITAMENTE en documentos:
+
+1. NO inventes nombres de:
+   - Cursos, programas, discipulados
+   - Eventos (si no está el nombre exacto)
+   - Ministerios (solo menciona los que veas)
+   - Personas (solo las que aparezcan)
+   - Fechas u horarios (solo los exactos)
+   - Ubicaciones o direcciones
+
+2. SI preguntan por algo que NO está específicamente en documentos:
+   → Di: "No tengo información específica sobre [X] en este momento. Te sugiero contactar directamente a VEA."
+   → NUNCA inventes listas o nombres que suenen "razonables"
+
+3. Ejemplos CORRECTOS:
+   Usuario: "¿Qué cursos hay para nuevos creyentes?"
+   Documentos: "VEA tiene discipulados" (sin nombres específicos)
+   Bot: "VEA ofrece programas de discipulado para nuevos creyentes. Te sugiero contactar a la iglesia para conocer los cursos disponibles y sus horarios."
+   
+4. Ejemplos INCORRECTOS:
+   Usuario: "¿Qué cursos hay para nuevos creyentes?"
+   Documentos: "VEA tiene discipulados" (sin nombres)
+   Bot: "Hay: 1. Discipulado para Nuevos Creyentes, 2. Curso de Fundamentos..." ← INVENTADO
+
+5. REGLA DE ORO:
+   Si NO está escrito EXACTAMENTE en documentos → NO lo menciones.
+   Es MEJOR decir "no tengo esa información" que inventar.
+
+REGLA FINAL
+- Lee la PREGUNTA, discrimina qué documentos son relevantes, ignora el resto.
+- No alucines, no inventes, mantén coherencia
 """)
 
 # Diagnostic logging for ACS environment variables
@@ -102,8 +318,8 @@ def _extract_message_data_tolerant(data: Dict[str, Any]) -> Optional[Dict[str, A
         Dictionary with normalized message info or None
     """
     try:
-        # Log the data structure for debugging (truncated to 2000 chars)
-        data_str = json.dumps(data, indent=2)
+        # Log la estructura sin escapar acentos (solo logging)
+        data_str = json.dumps(data, indent=2, ensure_ascii=False)
         if len(data_str) > 2000:
             data_str = data_str[:2000] + "..."
         logger.info(f"Attempting to extract message data from: {data_str}")
@@ -230,25 +446,54 @@ def _extract_message_data_tolerant(data: Dict[str, Any]) -> Optional[Dict[str, A
 
 def _get_conversation_history(phone_number: str) -> List[Dict[str, str]]:
     """
-    Get conversation history from Redis cache.
+    Get conversation history from Blob Storage.
     
     Args:
         phone_number: User's phone number
         
     Returns:
-        List of conversation messages
+        List of conversation messages (max 10 messages / 5 turns)
     """
     try:
-        # For now, return empty history
-        # TODO: Implement Redis integration
+        connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+        if not connection_string:
+            logger.warning("AZURE_STORAGE_CONNECTION_STRING not configured - history disabled")
+            return []
+        
+        from azure.storage.blob import BlobServiceClient
+        
+        # Limpiar número de teléfono (eliminar todos los caracteres no numéricos)
+        clean_phone = phone_number.replace('+', '').replace('-', '').replace(' ', '').replace('(', '').replace(')', '').replace('[', '').replace(']', '')
+        
+        # Configurar cliente de Blob
+        blob_service = BlobServiceClient.from_connection_string(connection_string)
+        container_name = os.getenv('AZURE_STORAGE_DOCUMENTS_CONTAINER', 'documents')
+        blob_name = f"conversations/{clean_phone}.json"
+        
+        blob_client = blob_service.get_blob_client(
+            container=container_name,
+            blob=blob_name
+        )
+        
+        # Intentar descargar historial (con timeout de 10 segundos)
+        if blob_client.exists(timeout=10):
+            data = blob_client.download_blob(timeout=10).readall()
+            history = json.loads(data.decode('utf-8'))
+            messages = history.get("messages", [])
+            # Devolver últimos 10 mensajes (5 turnos)
+            logger.info(f"Conversation history loaded for {clean_phone}: {len(messages)} messages")
+            return messages[-10:]
+        
+        logger.debug(f"No conversation history found for {clean_phone}")
         return []
+        
     except Exception as e:
-        logger.error(f"Error getting conversation history: {e}")
+        logger.error(f"Error getting conversation history for {phone_number}: {e}")
         return []
 
 def _update_conversation_history(phone_number: str, user_message: str, bot_response: str) -> bool:
     """
-    Update conversation history in Redis cache.
+    Update conversation history in Blob Storage.
     
     Args:
         phone_number: User's phone number
@@ -259,11 +504,67 @@ def _update_conversation_history(phone_number: str, user_message: str, bot_respo
         True if successful, False otherwise
     """
     try:
-        # For now, just log the conversation
-        logger.info(f"Conversation update for {phone_number}: User: {user_message[:50]}... Bot: {bot_response[:50]}...")
+        connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
+        if not connection_string:
+            logger.warning("AZURE_STORAGE_CONNECTION_STRING not configured - history disabled")
+            return False
+        
+        from azure.storage.blob import BlobServiceClient
+        
+        # Limpiar número de teléfono (eliminar todos los caracteres no numéricos)
+        clean_phone = phone_number.replace('+', '').replace('-', '').replace(' ', '').replace('(', '').replace(')', '').replace('[', '').replace(']', '')
+        
+        # Configurar cliente de Blob
+        blob_service = BlobServiceClient.from_connection_string(connection_string)
+        container_name = os.getenv('AZURE_STORAGE_DOCUMENTS_CONTAINER', 'documents')
+        blob_name = f"conversations/{clean_phone}.json"
+        
+        blob_client = blob_service.get_blob_client(
+            container=container_name,
+            blob=blob_name
+        )
+        
+        # 1. Leer historial existente (si existe, con timeout de 10 segundos)
+        existing_messages = []
+        if blob_client.exists(timeout=10):
+            data = blob_client.download_blob(timeout=10).readall()
+            existing_data = json.loads(data.decode('utf-8'))
+            existing_messages = existing_data.get("messages", [])
+        
+        # 2. Agregar nuevos mensajes
+        now = datetime.now(timezone.utc).isoformat()
+        existing_messages.append({
+            "role": "user",
+            "content": user_message,
+            "timestamp": now
+        })
+        existing_messages.append({
+            "role": "assistant",
+            "content": bot_response,
+            "timestamp": now
+        })
+        
+        # 3. Mantener solo últimos 10 mensajes (5 turnos)
+        existing_messages = existing_messages[-10:]
+        
+        # 4. Guardar en Blob Storage
+        history_data = {
+            "phone_number": clean_phone,
+            "messages": existing_messages,
+            "last_modified": now
+        }
+        
+        blob_client.upload_blob(
+            json.dumps(history_data, ensure_ascii=False, indent=2),
+            overwrite=True,
+            timeout=10
+        )
+        
+        logger.info(f"Conversation history updated for {clean_phone}: {len(existing_messages)} messages stored")
         return True
+        
     except Exception as e:
-        logger.error(f"Error updating conversation history: {e}")
+        logger.error(f"Error updating conversation history for {phone_number}: {e}")
         return False
 
 def _get_rag_context(query: str) -> Optional[str]:
@@ -331,18 +632,59 @@ def _get_rag_context(query: str) -> Optional[str]:
                 "vector_queries": [{
                     "vector": query_embedding,
                     "fields": "embedding",
-                    "k": 5,
+                    "k": 15,  # 🔥 NUEVO: Aumentado para filtrado posterior
                     "kind": "vector"
                 }],
                 "select": ["id", "content", "embedding", "created_at"],
-                "top": 5
+                "top": 15  # 🔥 NUEVO: Aumentado de 5 a 15
             }
             
             search_results = search_client.search(search_text="", **search_options)
             
+            # 🔥 NUEVO: Filtrado inteligente (de Jupyter)
+            results_list = list(search_results)
+            
+            # 🔥 Detectar si pregunta por CONTACTO o MINISTERIOS o PERSONAS o DONACIONES
+            palabras_contacto = ['contacto', 'teléfono', 'telefono', 'número', 'numero', 'llamar', 'comunicar', 'hablar', 'whatsapp']
+            palabras_ministerio = ['ministerio', 'ministerios', 'qué ministerios', 'cuáles ministerios', 'quién trabaja', 'quien trabaja', 'quién es', 'quien es']
+            palabras_donacion = ['donación', 'donaciones', 'donar', 'diezmo', 'diezmos', 'ofrenda', 'ofrendas', 'dar', 'apoyo', 'apoyar']
+            
+            es_pregunta_contacto = any(palabra in query.lower() for palabra in palabras_contacto)
+            es_pregunta_ministerio = any(palabra in query.lower() for palabra in palabras_ministerio)
+            es_pregunta_donacion = any(palabra in query.lower() for palabra in palabras_donacion)
+            
+            # Filtrar contactos SOLO si NO es pregunta de contacto NI de ministerio/persona
+            if not es_pregunta_contacto and not es_pregunta_ministerio:
+                results_list = [r for r in results_list if not r.get('id', '').startswith('contact_')]
+                logger.info(f"[FILTER] Contacts excluded. Remaining: {len(results_list)} documents")
+            else:
+                logger.info(f"[FILTER] Contacts included (question about contact/ministry/person). Total: {len(results_list)} documents")
+            
+            # 🔥 NUEVO: Filtrar donations SOLO si NO es pregunta sobre donaciones/diezmos/ofrendas
+            if not es_pregunta_donacion:
+                # Heurística: Si el primero NO es donation Y hay suficientes otros docs, excluir donations
+                if results_list and not results_list[0].get('id', '').startswith('donation_'):
+                    resultados_sin_donations = [r for r in results_list if not r.get('id', '').startswith('donation_')]
+                    if len(resultados_sin_donations) >= 3:
+                        results_list = resultados_sin_donations
+                        logger.info(f"[FILTER] Donations excluded (not relevant). Remaining: {len(results_list)} documents")
+            else:
+                logger.info(f"[FILTER] Donations included (question about donations/tithes/offerings)")
+            
+            # Priorizar events automáticamente
+            events = [r for r in results_list if r.get('id', '').startswith('event_')]
+            others = [r for r in results_list if not r.get('id', '').startswith('event_')]
+            
+            if events:
+                results_list = events + others
+                logger.info(f"[FILTER] Prioritized {len(events)} events")
+            
+            # Top 7 (aumentado de 5 para más contexto)
+            results_list = results_list[:7]
+            
             # Paso 3: Extraer contexto (como handlers._rag_answer línea 652-660)
             context_parts = []
-            for result in search_results:
+            for result in results_list:
                 try:
                     # CLI línea 655: h.get('text') or h.get('content')
                     txt = (result.get('text') or result.get('content') or '').strip()
@@ -458,51 +800,86 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
         
         # EXACTAMENTE como CLI handlers._rag_answer líneas 647-673
         
-        # Si no hay contexto RAG, retornar mensaje directo (CLI línea 649)
-        if not rag_context:
+        # 🔥 NUEVO: Detectar preguntas personales (no requieren RAG)
+        palabras_personales = ['me llamo', 'mi nombre', 'soy', 'mi edad', 'tengo', 'años']
+        es_pregunta_personal = any(palabra in user_message.lower() for palabra in palabras_personales)
+        
+        # Si no hay contexto RAG Y NO es pregunta personal, retornar mensaje
+        if not rag_context and not es_pregunta_personal:
             logger.info("[V2] No RAG context available - returning no info message")
             return "No encontré información relevante en el índice."
         
-        logger.info(f"[V2] RAG context available: {len(rag_context)} characters")
-        
-        # [GUARD-DEFINITIONS] Verificar preguntas tipo "¿Qué es X?" o "¿Qué significa X?"
-        # Si X no aparece en el contexto, no inferir - devolver "no hay información"
-        import re
-        definition_pattern = r'(?:qué\s+es|qué\s+significa|define|definición\s+de)\s+([A-ZÑ]{2,6})\b'
-        match = re.search(definition_pattern, user_message, re.IGNORECASE)
-        if match:
-            term = match.group(1).upper()
-            # Verificar si el término aparece literalmente en el contexto (case-insensitive)
-            if term.lower() not in rag_context.lower():
-                logger.info(f"[GUARD-DEFINITIONS] Term '{term}' not found in context - blocking inference")
-                return f"No encontré información sobre '{term}' en el índice."
-        
-        # Build messages EXACTAMENTE como CLI línea 667-670
-        messages = [
-            {"role": "system", "content": BOT_SYSTEM_PROMPT},  # CLI línea 668
-            {"role": "user", "content": f"Contexto:\n{rag_context}\n\nPregunta: {user_message}"}  # CLI línea 669
-        ]
-        
-        logger.info(f"[V2] Sending request to OpenAI with {len(messages)} messages")
-        
-        # Generate response con parámetros EXACTOS del CLI línea 671
-        response = client.chat.completions.create(
-            model=openai_deployment,  # type: ignore
-            messages=messages,  # type: ignore
-            max_tokens=350,  # CLI línea 671
-            temperature=0.2  # CLI línea 671
-        )
-        
-        if response.choices and response.choices[0].message and response.choices[0].message.content:
-            ai_response = response.choices[0].message.content.strip()
-            logger.info(f"Generated AI response: {ai_response[:100]}...")
-            return ai_response
+        if rag_context:
+            logger.info(f"[V2] RAG context available: {len(rag_context)} characters")
         else:
-            logger.error("No response content from OpenAI")
-            return "Lo siento, no pude generar una respuesta. Por favor intenta de nuevo."
+            logger.info("[V2] Personal question detected - proceeding without RAG context")
+        
+        # 🔥 NUEVO: Agregar fecha y hora actual para contexto temporal (de Jupyter)
+        from datetime import datetime
+        import pytz
+        tz = pytz.timezone('America/Mexico_City')
+        fecha_hoy = datetime.now(tz).strftime("%d/%m/%Y")
+        dia_semana_hoy = datetime.now(tz).strftime("%A")
+        hora_actual = datetime.now(tz).strftime("%H:%M")
+        
+        # Traducir día de la semana a español
+        dias_es = {
+            'Monday': 'lunes', 'Tuesday': 'martes', 'Wednesday': 'miércoles',
+            'Thursday': 'jueves', 'Friday': 'viernes', 'Saturday': 'sábado', 'Sunday': 'domingo'
+        }
+        dia_semana_hoy = dias_es.get(dia_semana_hoy, dia_semana_hoy)
+        
+        # 🔥 NUEVO: Construir mensajes con historial conversacional (como Jupyter)
+        messages = [{"role": "system", "content": BOT_SYSTEM_PROMPT}]
+        
+        # Agregar historial de conversación (últimos 12 mensajes)
+        for msg in conversation_history[-12:]:
+            messages.append({
+                "role": msg.get('role', 'user'),
+                "content": msg.get('content', '')
+            })
+        
+        # Construir mensaje actual con o sin RAG
+        if rag_context:
+            user_content = f"[FECHA Y HORA ACTUAL: {fecha_hoy} ({dia_semana_hoy}) - {hora_actual}]\n\n[Conversación anterior arriba]\n\n[DOCUMENTOS DE VEA]:\n{rag_context}\n\n[PREGUNTA]:\n{user_message}"
+        else:
+            # Pregunta personal sin RAG
+            user_content = f"[FECHA Y HORA ACTUAL: {fecha_hoy} ({dia_semana_hoy}) - {hora_actual}]\n\n[Conversación anterior arriba]\n\n[PREGUNTA]:\n{user_message}"
+        
+        messages.append({"role": "user", "content": user_content})
+        
+        logger.info(f"[V2] Sending request to OpenAI with {len(messages)} messages (fecha: {fecha_hoy}, hora: {hora_actual})")
+        
+        # 🔥 NUEVO: Manejo de errores de filtro de contenido (de Jupyter)
+        try:
+            # Generate response con temperatura reducida para evitar alucinaciones
+            response = client.chat.completions.create(
+                model=openai_deployment,  # type: ignore
+                messages=messages,  # type: ignore
+                max_tokens=350,
+                temperature=0.0  # 🔥 NUEVO: 0.0 para evitar inventar información (era 0.1)
+            )
+            
+            if response.choices and response.choices[0].message and response.choices[0].message.content:
+                ai_response = response.choices[0].message.content.strip()
+                logger.info(f"Generated AI response: {ai_response[:100]}...")
+                return ai_response
+            else:
+                logger.error("No response content from OpenAI")
+                return "Lo siento, no pude generar una respuesta. Por favor intenta de nuevo."
+                
+        except Exception as e:
+            error_str = str(e)
+            # 🔥 NUEVO: Manejar filtro de contenido específicamente
+            if 'content_filter' in error_str or 'BadRequest' in str(type(e)):
+                logger.warning(f"[CONTENT_FILTER] Message blocked for user: {user_message[:50]}")
+                return "Disculpa, no pude procesar tu mensaje debido a las políticas de seguridad. Intenta reformular tu pregunta de otra forma."
+            else:
+                logger.error(f"Error generating AI response: {e}")
+                raise
             
     except Exception as e:
-        logger.error(f"Error generating AI response: {e}")
+        logger.error(f"Error in _generate_ai_response outer: {e}")
         return "Lo siento, estoy teniendo problemas para procesar tu mensaje. Por favor, intenta de nuevo más tarde."
 
 def _send_whatsapp_text(to_number: str, text: str) -> bool:
@@ -562,7 +939,7 @@ def _send_whatsapp_text(to_number: str, text: str) -> bool:
                 text_options = TextNotificationContent(
                     channel_registration_id=channel_registration_id,
                     to=[to_number],
-                    content=text
+                    content=str(text)  # fuerza tipo str para el SDK, sin recodificar ni alterar contenido
                 )
                 
                 # Send the message
@@ -618,8 +995,8 @@ def _send_whatsapp_text(to_number: str, text: str) -> bool:
             "to": [to_number]
         }
         
-        # Convert payload to JSON string
-        payload_json = json.dumps(payload)
+        # Serializa exactamente el JSON que se va a firmar y enviar (sin espacios)
+        payload_json = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
         
         # Build URL with API version
         url = f"{endpoint}/messages?api-version=2024-02-15-preview"
@@ -627,7 +1004,7 @@ def _send_whatsapp_text(to_number: str, text: str) -> bool:
         logger.info(f"Using endpoint: {endpoint}")
         logger.info(f"Using API version: 2024-02-15-preview")
         
-        # Generate HMAC signature
+        # Firma sobre la MISMA cadena
         signature = _generate_hmac_signature(access_key, url, 'POST', payload_json)
         
         if not signature:
@@ -650,7 +1027,17 @@ def _send_whatsapp_text(to_number: str, text: str) -> bool:
         for attempt in range(max_retries):
             try:
                 logger.info(f"Attempt {attempt + 1} of {max_retries}")
-                response = requests.post(url, json=payload, headers=headers, timeout=30)
+                # Enviar los MISMOS bytes firmados (UTF-8) y añadir Accept
+                # response = requests.post(url, json=payload, headers=headers, timeout=30)  # ← comentado: causaba doble serialización
+                response = requests.post(
+                    url,
+                    data=payload_json.encode('utf-8'),
+                    headers={
+                        **headers,
+                        'Accept': 'application/json',
+                    },
+                    timeout=30,
+                )
                 break
             except requests.exceptions.ConnectionError as conn_error:
                 logger.error(f"Connection error on attempt {attempt + 1}: {conn_error}")
@@ -776,8 +1163,8 @@ def main(event: func.EventGridEvent) -> None:
     # Log event details
     logger.info(f"Event received - Type: {event.event_type}, Subject: {event.subject}, ID: {event.id}")
     
-    # Log payload size for debugging
-    payload_str = json.dumps(event.get_json())
+    # Log payload size (sin escapar acentos en logs)
+    payload_str = json.dumps(event.get_json(), ensure_ascii=False)
     payload_size = len(payload_str)
     logger.info(f"Payload size: {payload_size} bytes")
     
@@ -839,7 +1226,10 @@ def main(event: func.EventGridEvent) -> None:
             # Update conversation history
             _update_conversation_history(from_number, text, ai_response)
             
-            # Send WhatsApp response
+            # Normalizar UTF-8 antes de enviar (evitar mojibake)
+            # ai_response_normalized = ai_response.encode('utf-8').decode('utf-8')  # ← comentado para evitar doble transcodificación
+            
+            # Send WhatsApp response (enviar la cadena Unicode tal cual)
             success = _send_whatsapp_text(from_number, ai_response)
             
             # Log the response and status
