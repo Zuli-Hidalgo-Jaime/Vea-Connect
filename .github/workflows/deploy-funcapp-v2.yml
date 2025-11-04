@@ -46,3 +46,4 @@ jobs:
         echo "Deployment completado a ${{ env.AZURE_FUNCTIONAPP_NAME }}"
         echo "Paquete desplegado desde: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
         echo "Python version: ${{ env.PYTHON_VERSION }}"
+
