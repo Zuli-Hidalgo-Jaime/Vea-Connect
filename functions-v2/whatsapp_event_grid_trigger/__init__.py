@@ -2,6 +2,7 @@ import logging
 import json
 import os
 import time
+import re
 import azure.functions as func
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
@@ -102,6 +103,30 @@ FECHAS INCOMPLETAS:
 - Si el documento tiene DÍA/MES pero NO año: NO inventes el año, NO pongas 0000.
 - Formato con año: "07/06/2025 — 17:00"
 - Formato sin año: "07 de junio — 17:00" (sin dd/mm/yyyy, solo descriptivo)
+
+INTERPRETACIÓN DE FECHAS EN EVENTOS (CRÍTICO - MÁXIMA PRIORIDAD):
+- Si un documento tiene [FECHA REAL: DD/MM/YYYY - DÍA (TIPO)] al inicio, ESA es la fecha ABSOLUTA del evento.
+- USA SIEMPRE la información de [FECHA REAL] e IGNORA COMPLETAMENTE cualquier otra mención contradictoria en el texto.
+- Ejemplo CORRECTO:
+  Content: "[FECHA REAL: 01/01/2025 - MIÉRCOLES (ENTRE SEMANA)] El domingo nos reuniremos..."
+  Bot: "El evento es el miércoles 1 de enero..." (Usa MIÉRCOLES de [FECHA REAL], ignora "domingo" del texto)
+- "ENTRE SEMANA" = lunes, martes, miércoles, jueves, viernes
+- "FIN DE SEMANA" = sábado, domingo
+
+TELÉFONOS Y CONTACTOS (CRÍTICO - ULTRA ESPECÍFICO)
+
+REGLA GENERAL DE NÚMEROS Y DATOS BANCARIOS (CRÍTICO):
+NO des números telefónicos, CLABEs, cuentas bancarias A MENOS QUE el usuario use estas palabras:
+- Para teléfonos: "número", "teléfono", "contacto", "comunicar", "llamar", "hablar", "whatsapp"
+- Para donaciones: "donar", "donación", "ofrenda", "diezmo", "apoyar", "cómo dar"
+
+Ejemplos:
+- "¿Quién es el pastor?" → NO dar número (no pidió contacto)
+- "¿Qué hace VeaKids?" → NO dar número NI CLABE (solo explicar qué hace)
+- "¿Cómo donar a VEA?" → SÍ dar CLABE (pidió cómo donar)
+- "¿Teléfono de VEA?" → SÍ dar número (dice "teléfono")
+
+Esta regla aplica para TODAS las preguntas excepto las que explícitamente pidan contacto o donación.
 
 TELÉFONOS Y CONTACTOS (CRÍTICO - ULTRA ESPECÍFICO)
 
@@ -458,7 +483,7 @@ def _get_conversation_history(phone_number: str) -> List[Dict[str, str]]:
         connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
         if not connection_string:
             logger.warning("AZURE_STORAGE_CONNECTION_STRING not configured - history disabled")
-            return []
+        return []
         
         from azure.storage.blob import BlobServiceClient
         
@@ -567,6 +592,84 @@ def _update_conversation_history(phone_number: str, user_message: str, bot_respo
         logger.error(f"Error updating conversation history for {phone_number}: {e}")
         return False
 
+def _calcular_dia_semana(fecha_str: str) -> Optional[str]:
+    """
+    Calcula el día de la semana para una fecha en formato DD/MM/YYYY.
+    
+    Args:
+        fecha_str: Fecha en formato "DD/MM/YYYY" (ej: "09/11/2025")
+        
+    Returns:
+        Día de la semana en español (ej: "sábado") o None si error
+    """
+    try:
+        from datetime import datetime
+        fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
+        dias_es = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
+        return dias_es[fecha.weekday()]
+    except Exception as e:
+        logger.warning(f"Error calculando día de semana para '{fecha_str}': {e}")
+        return None
+
+def _extraer_fecha_del_content(content: str) -> Optional[str]:
+    """
+    Extrae fechas del texto en formatos comunes.
+    
+    Args:
+        content: Texto del documento
+        
+    Returns:
+        Fecha en formato DD/MM/YYYY o None
+    """
+    # Patrón para DD/MM/YYYY
+    patron_completo = r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})'
+    match = re.search(patron_completo, content)
+    if match:
+        dia, mes, año = match.groups()
+        return f"{dia.zfill(2)}/{mes.zfill(2)}/{año}"
+    
+    # Patrón para "7 DE JUNIO" o "7 de junio"
+    meses = {
+        'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+        'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+        'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+    }
+    
+    for mes_nombre, mes_num in meses.items():
+        patron = rf'(\d{{1,2}})\s+de\s+{mes_nombre}'
+        match = re.search(patron, content.lower())
+        if match:
+            dia = match.group(1)
+            from datetime import datetime
+            año_actual = datetime.now().year
+            return f"{dia.zfill(2)}/{mes_num}/{año_actual}"
+    
+    return None
+
+def _extraer_dia_semana_del_content(content: str) -> Optional[str]:
+    """
+    Extrae el día de la semana del texto si está presente.
+    
+    Args:
+        content: Texto del documento
+        
+    Returns:
+        Día de la semana en español o None
+    """
+    content_lower = content.lower()
+    
+    dias = {
+        'lunes': 'lunes', 'martes': 'martes', 'miércoles': 'miércoles',
+        'miercoles': 'miércoles', 'jueves': 'jueves', 'viernes': 'viernes',
+        'sábado': 'sábado', 'sabado': 'sábado', 'domingo': 'domingo'
+    }
+    
+    for dia_buscar, dia_normalizado in dias.items():
+        if dia_buscar in content_lower:
+            return dia_normalizado
+    
+    return None
+
 def _get_rag_context(query: str) -> Optional[str]:
     """
     Get RAG context for the query using Azure Search directly.
@@ -632,19 +735,19 @@ def _get_rag_context(query: str) -> Optional[str]:
                 "vector_queries": [{
                     "vector": query_embedding,
                     "fields": "embedding",
-                    "k": 15,  # 🔥 NUEVO: Aumentado para filtrado posterior
+                    "k": 15,  # Aumentado para filtrado posterior
                     "kind": "vector"
                 }],
                 "select": ["id", "content", "embedding", "created_at"],
-                "top": 15  # 🔥 NUEVO: Aumentado de 5 a 15
+                "top": 15  # Aumentado de 5 a 15
             }
             
             search_results = search_client.search(search_text="", **search_options)
             
-            # 🔥 NUEVO: Filtrado inteligente (de Jupyter)
+            # Filtrado inteligente
             results_list = list(search_results)
             
-            # 🔥 Detectar si pregunta por CONTACTO o MINISTERIOS o PERSONAS o DONACIONES
+            # Detectar si pregunta por CONTACTO o MINISTERIOS o PERSONAS o DONACIONES
             palabras_contacto = ['contacto', 'teléfono', 'telefono', 'número', 'numero', 'llamar', 'comunicar', 'hablar', 'whatsapp']
             palabras_ministerio = ['ministerio', 'ministerios', 'qué ministerios', 'cuáles ministerios', 'quién trabaja', 'quien trabaja', 'quién es', 'quien es']
             palabras_donacion = ['donación', 'donaciones', 'donar', 'diezmo', 'diezmos', 'ofrenda', 'ofrendas', 'dar', 'apoyo', 'apoyar']
@@ -660,14 +763,14 @@ def _get_rag_context(query: str) -> Optional[str]:
             else:
                 logger.info(f"[FILTER] Contacts included (question about contact/ministry/person). Total: {len(results_list)} documents")
             
-            # 🔥 NUEVO: Filtrar donations SOLO si NO es pregunta sobre donaciones/diezmos/ofrendas
-            if not es_pregunta_donacion:
-                # Heurística: Si el primero NO es donation Y hay suficientes otros docs, excluir donations
-                if results_list and not results_list[0].get('id', '').startswith('donation_'):
-                    resultados_sin_donations = [r for r in results_list if not r.get('id', '').startswith('donation_')]
-                    if len(resultados_sin_donations) >= 3:
-                        results_list = resultados_sin_donations
-                        logger.info(f"[FILTER] Donations excluded (not relevant). Remaining: {len(results_list)} documents")
+            # Filtrar donations SIEMPRE si NO es pregunta sobre donaciones
+            palabras_donacion_extra = ['cuenta', 'clabe', 'transferencia', 'bancario']
+            es_pregunta_donacion_completa = es_pregunta_donacion or any(palabra in query.lower() for palabra in palabras_donacion_extra)
+            
+            if not es_pregunta_donacion_completa:
+                # SIEMPRE excluir donations si no pregunta por donaciones
+                results_list = [r for r in results_list if not r.get('id', '').startswith('donation_')]
+                logger.info(f"[FILTER] Donations excluded (not donation question). Remaining: {len(results_list)} documents")
             else:
                 logger.info(f"[FILTER] Donations included (question about donations/tithes/offerings)")
             
@@ -678,6 +781,114 @@ def _get_rag_context(query: str) -> Optional[str]:
             if events:
                 results_list = events + others
                 logger.info(f"[FILTER] Prioritized {len(events)} events")
+            
+            # Enriquecer eventos con día de semana (extrayendo del content)
+            for result in results_list:
+                doc_id = result.get('id', '')
+                if doc_id.startswith('event_'):
+                    content = result.get('content', '')
+                    
+                    # Intentar extraer fecha completa
+                    fecha_extraida = _extraer_fecha_del_content(content)
+                    
+                    if fecha_extraida:
+                        dia_semana = _calcular_dia_semana(fecha_extraida)
+                        if dia_semana:
+                            # Limpiar días contradictorios del texto
+                            content_limpio = content
+                            dias_a_limpiar = ['lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes', 'sábado', 'sabado', 'domingo']
+                            
+                            for dia in dias_a_limpiar:
+                                if dia != dia_semana:
+                                    content_limpio = re.sub(rf'\b{dia}\b', '', content_limpio, flags=re.IGNORECASE)
+                            
+                            content_limpio = re.sub(r'\s+', ' ', content_limpio).strip()
+                            
+                            # Agregar info explícita al INICIO
+                            es_fin_semana = dia_semana in ['sábado', 'domingo']
+                            tipo_dia = "FIN DE SEMANA" if es_fin_semana else "ENTRE SEMANA"
+                            info_fecha = f"[FECHA REAL: {fecha_extraida} - {dia_semana.upper()} ({tipo_dia})]"
+                            result['content'] = f"{info_fecha}\n\n{content_limpio}"
+                            result['_fecha_calculada'] = fecha_extraida
+                            result['_dia_semana'] = dia_semana
+                            logger.info(f"[ENRICH] {doc_id}: {fecha_extraida} -> {dia_semana} ({tipo_dia})")
+                    else:
+                        # Sin fecha completa, buscar día en texto
+                        dia_semana = _extraer_dia_semana_del_content(content)
+                        if dia_semana:
+                            content_limpio = content
+                            dias_a_limpiar = ['lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes', 'sábado', 'sabado', 'domingo']
+                            
+                            for dia in dias_a_limpiar:
+                                if dia != dia_semana:
+                                    content_limpio = re.sub(rf'\b{dia}\b', '', content_limpio, flags=re.IGNORECASE)
+                            
+                            content_limpio = re.sub(r'\s+', ' ', content_limpio).strip()
+                            
+                            es_fin_semana = dia_semana in ['sábado', 'domingo']
+                            tipo_dia = "FIN DE SEMANA" if es_fin_semana else "ENTRE SEMANA"
+                            info_dia = f"[DÍA DE LA SEMANA: {dia_semana.upper()} ({tipo_dia})]"
+                            result['content'] = f"{info_dia}\n\n{content_limpio}"
+                            result['_dia_semana'] = dia_semana
+                            logger.info(f"[ENRICH] {doc_id}: Day -> {dia_semana} ({tipo_dia})")
+            
+            # Filtrar por día de semana (si pregunta específica)
+            palabras_fin_semana = ['fin de semana', 'sábado', 'sabado', 'domingo']
+            palabras_entre_semana = ['entre semana', 'lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes']
+            
+            es_pregunta_fin_semana = any(p in query.lower() for p in palabras_fin_semana)
+            es_pregunta_entre_semana = any(p in query.lower() for p in palabras_entre_semana)
+            
+            if es_pregunta_fin_semana:
+                logger.info("[FILTER] Weekend events filter applied")
+                events_filtered = []
+                for r in results_list:
+                    if r.get('id', '').startswith('event_'):
+                        dia = r.get('_dia_semana')
+                        if dia and dia in ['sábado', 'domingo']:
+                            events_filtered.append(r)
+                        elif not dia:
+                            events_filtered.append(r)
+                    else:
+                        events_filtered.append(r)
+                results_list = events_filtered
+                logger.info(f"[FILTER] After weekend filter: {len(results_list)} documents")
+            
+            elif es_pregunta_entre_semana:
+                logger.info("[FILTER] Weekday events filter applied")
+                events_filtered = []
+                for r in results_list:
+                    if r.get('id', '').startswith('event_'):
+                        dia = r.get('_dia_semana')
+                        if dia and dia in ['lunes', 'martes', 'miércoles', 'jueves', 'viernes']:
+                            events_filtered.append(r)
+                        elif not dia:
+                            events_filtered.append(r)
+                    else:
+                        events_filtered.append(r)
+                results_list = events_filtered
+                logger.info(f"[FILTER] After weekday filter: {len(results_list)} documents")
+            
+            # Ordenar por fecha (si pregunta "próximo")
+            palabras_proximo = ['próximo', 'proximo', 'siguiente', 'próximos', 'proximos', 'siguientes']
+            es_pregunta_proximo = any(p in query.lower() for p in palabras_proximo)
+            
+            if es_pregunta_proximo:
+                logger.info("[SORT] Sorting events by date")
+                events_to_sort = [r for r in results_list if r.get('id', '').startswith('event_') and r.get('_fecha_calculada')]
+                others = [r for r in results_list if not (r.get('id', '').startswith('event_') and r.get('_fecha_calculada'))]
+                
+                def parse_fecha_sort(fecha_str):
+                    try:
+                        from datetime import datetime
+                        return datetime.strptime(fecha_str, "%d/%m/%Y")
+                    except:
+                        from datetime import datetime
+                        return datetime.min
+                
+                events_to_sort.sort(key=lambda r: parse_fecha_sort(r.get('_fecha_calculada', '')))
+                results_list = events_to_sort[:3] + others
+                logger.info(f"[SORT] Top 3 upcoming events selected")
             
             # Top 7 (aumentado de 5 para más contexto)
             results_list = results_list[:7]
@@ -800,7 +1011,7 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
         
         # EXACTAMENTE como CLI handlers._rag_answer líneas 647-673
         
-        # 🔥 NUEVO: Detectar preguntas personales (no requieren RAG)
+        # Detectar preguntas personales (no requieren RAG)
         palabras_personales = ['me llamo', 'mi nombre', 'soy', 'mi edad', 'tengo', 'años']
         es_pregunta_personal = any(palabra in user_message.lower() for palabra in palabras_personales)
         
@@ -814,7 +1025,7 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
         else:
             logger.info("[V2] Personal question detected - proceeding without RAG context")
         
-        # 🔥 NUEVO: Agregar fecha y hora actual para contexto temporal (de Jupyter)
+        # Agregar fecha y hora actual para contexto temporal
         from datetime import datetime
         import pytz
         tz = pytz.timezone('America/Mexico_City')
@@ -829,7 +1040,7 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
         }
         dia_semana_hoy = dias_es.get(dia_semana_hoy, dia_semana_hoy)
         
-        # 🔥 NUEVO: Construir mensajes con historial conversacional (como Jupyter)
+        # Construir mensajes con historial conversacional
         messages = [{"role": "system", "content": BOT_SYSTEM_PROMPT}]
         
         # Agregar historial de conversación (últimos 12 mensajes)
@@ -850,18 +1061,50 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
         
         logger.info(f"[V2] Sending request to OpenAI with {len(messages)} messages (fecha: {fecha_hoy}, hora: {hora_actual})")
         
-        # 🔥 NUEVO: Manejo de errores de filtro de contenido (de Jupyter)
+        # Manejo de errores de filtro de contenido
         try:
             # Generate response con temperatura reducida para evitar alucinaciones
             response = client.chat.completions.create(
                 model=openai_deployment,  # type: ignore
                 messages=messages,  # type: ignore
                 max_tokens=350,
-                temperature=0.0  # 🔥 NUEVO: 0.0 para evitar inventar información (era 0.1)
+                temperature=0.0  # 0.0 para evitar inventar información
             )
             
             if response.choices and response.choices[0].message and response.choices[0].message.content:
                 ai_response = response.choices[0].message.content.strip()
+                
+                # Post-procesar respuesta para eliminar palabras temporales relativas
+                ai_response_original = ai_response
+                
+                # Eliminar "mañana", "hoy", "pasado mañana", etc.
+                palabras_prohibidas = [
+                    (r'\bmañana,?\s*', ''),
+                    (r'\bhoy,?\s*', ''),
+                    (r'\bpasado mañana,?\s*', ''),
+                    (r'\bayer,?\s*', ''),
+                    (r'\beste\s+fin\s+de\s+semana,?\s*', 'este fin de semana '),
+                    (r'\besta\s+semana,?\s*', ''),
+                ]
+                
+                for patron, reemplazo in palabras_prohibidas:
+                    ai_response = re.sub(patron, reemplazo, ai_response, flags=re.IGNORECASE)
+                
+                # Limpiar espacios dobles y comas dobles
+                ai_response = re.sub(r'\s+', ' ', ai_response)
+                ai_response = re.sub(r',\s*,', ',', ai_response)
+                ai_response = ai_response.strip()
+                
+                # Capitalizar primera letra si se perdió
+                if ai_response and ai_response[0].islower():
+                    ai_response = ai_response[0].upper() + ai_response[1:]
+                
+                # Capitalizar después de ". "
+                ai_response = re.sub(r'\.\s+([a-záéíóúñ])', lambda m: '. ' + m.group(1).upper(), ai_response)
+                
+                if ai_response != ai_response_original:
+                    logger.info(f"[POST-PROCESS] Removed temporal words from response")
+                
                 logger.info(f"Generated AI response: {ai_response[:100]}...")
                 return ai_response
             else:
@@ -870,7 +1113,7 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
                 
         except Exception as e:
             error_str = str(e)
-            # 🔥 NUEVO: Manejar filtro de contenido específicamente
+            # Manejar filtro de contenido específicamente
             if 'content_filter' in error_str or 'BadRequest' in str(type(e)):
                 logger.warning(f"[CONTENT_FILTER] Message blocked for user: {user_message[:50]}")
                 return "Disculpa, no pude procesar tu mensaje debido a las políticas de seguridad. Intenta reformular tu pregunta de otra forma."
