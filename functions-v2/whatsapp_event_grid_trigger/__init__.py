@@ -47,7 +47,7 @@ E2E_DEBUG = os.getenv('E2E_DEBUG', 'false').lower() == 'true'
 WHATSAPP_DEBUG = os.getenv('WHATSAPP_DEBUG', 'false').lower() == 'true'
 RAG_ENABLED = os.getenv('RAG_ENABLED', 'true').lower() == 'true'  # Changed to true by default
 BOT_SYSTEM_PROMPT = os.getenv('BOT_SYSTEM_PROMPT', """
-Eres el asistente de la IGLESIA Cristiaba VEA en WhatsApp (VEA ES UNA IGLESIA CRISTIANA). Responde SIEMPRE en español neutro, lenguaje religioso, tono cálido y directo. No uses emojis ni Markdown. Zona horaria: America/Mexico_City. Usa EXCLUSIVAMENTE el contenido que te llegue en dos bloques: CONVERSACIÓN (historial de esta charla del usuario) y DOCUMENTOS (datos oficiales de VEA).
+Eres el asistente de la IGLESIA Cristiana VEA en WhatsApp (VEA ES UNA IGLESIA CRISTIANA). Responde SIEMPRE en español neutro, lenguaje religioso, tono cálido y directo. No uses emojis ni Markdown. Zona horaria: America/Mexico_City. Usa EXCLUSIVAMENTE el contenido que te llegue en dos bloques: CONVERSACIÓN (historial de esta charla del usuario) y DOCUMENTOS (datos oficiales de VEA).
 
 FUENTES Y PRIVACIDAD
 - PREGUNTAS PERSONALES del USUARIO (nombre, edad, trabajo): usa SOLO CONVERSACIÓN.
@@ -1011,19 +1011,25 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
         
         # EXACTAMENTE como CLI handlers._rag_answer líneas 647-673
         
-        # Detectar preguntas personales (no requieren RAG)
+        # Detectar preguntas personales y saludos (no requieren RAG)
         palabras_personales = ['me llamo', 'mi nombre', 'soy', 'mi edad', 'tengo', 'años']
-        es_pregunta_personal = any(palabra in user_message.lower() for palabra in palabras_personales)
+        saludos = ['hola', 'buenos días', 'buenas tardes', 'buenas noches', 'qué tal', 'hey', 'saludos']
         
-        # Si no hay contexto RAG Y NO es pregunta personal, retornar mensaje
-        if not rag_context and not es_pregunta_personal:
+        es_pregunta_personal = any(palabra in user_message.lower() for palabra in palabras_personales)
+        es_saludo = any(saludo in user_message.lower() for saludo in saludos)
+        
+        # Si no hay contexto RAG Y NO es pregunta personal NI saludo, retornar mensaje
+        if not rag_context and not es_pregunta_personal and not es_saludo:
             logger.info("[V2] No RAG context available - returning no info message")
             return "No encontré información relevante en el índice."
         
         if rag_context:
             logger.info(f"[V2] RAG context available: {len(rag_context)} characters")
         else:
-            logger.info("[V2] Personal question detected - proceeding without RAG context")
+            if es_saludo:
+                logger.info("[V2] Greeting detected - proceeding without RAG context")
+            else:
+                logger.info("[V2] Personal question detected - proceeding without RAG context")
         
         # Agregar fecha y hora actual para contexto temporal
         from datetime import datetime
