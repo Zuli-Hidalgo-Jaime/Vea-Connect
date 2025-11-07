@@ -88,6 +88,11 @@ def upload_document(request):
                 import os
                 uploaded_filename = uploaded_file.name if hasattr(uploaded_file, 'name') else getattr(ffield, 'name', '')
                 file_ext = os.path.splitext(uploaded_filename)[1].lower() if uploaded_filename else ''
+                content_type = getattr(uploaded_file, 'content_type', '') or ''
+
+                # Corrección: algunos navegadores envían PDFs con extensión incorrecta (ej. .zip)
+                if ('pdf' in content_type.lower()) and file_ext not in ['.pdf', '.txt']:
+                    file_ext = '.pdf'
                 
                 # Leer bytes del archivo
                 from io import BytesIO as _BytesIO
@@ -395,6 +400,10 @@ def edit_document(request, pk):
                 # Detectar extensión del archivo recién cargado
                 uploaded_filename = new_file.name if hasattr(new_file, 'name') else getattr(ffield, 'name', '')
                 file_ext = os.path.splitext(uploaded_filename)[1].lower() if uploaded_filename else ''
+                content_type = getattr(new_file, 'content_type', '') or ''
+
+                if ('pdf' in content_type.lower()) and file_ext not in ['.pdf', '.txt']:
+                    file_ext = '.pdf'
 
                 # Procesar según tipo de archivo (misma lógica que en CREATE)
                 from io import BytesIO as _BytesIO
