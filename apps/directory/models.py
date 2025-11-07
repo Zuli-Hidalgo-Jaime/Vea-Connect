@@ -1,6 +1,7 @@
 # apps/directory/models.py
 
 from django.db import models
+from django.conf import settings
 
 class Contact(models.Model):
     first_name = models.CharField(max_length=50, verbose_name="Nombre")
@@ -8,6 +9,7 @@ class Contact(models.Model):
     role = models.CharField(max_length=100, verbose_name="Rol", blank=True, null=True)
     ministry = models.CharField(max_length=150, verbose_name="Ministerio")
     contact = models.CharField(max_length=100, verbose_name="Contacto")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='contacts', verbose_name="Creado por", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

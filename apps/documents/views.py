@@ -84,7 +84,12 @@ def upload_document(request):
                     logger.error(f"[FIX-CREATE-SAVE] Verificación tamaño falló: {_size_exc}")
                     raise
 
-                # [FIX-CREATE-OCR] Reabrir desde storage y validar/normalizar imagen
+                # [FIX-CREATE-FILE-TYPE] Detectar tipo de archivo ANTES de procesar
+                import os
+                uploaded_filename = uploaded_file.name if hasattr(uploaded_file, 'name') else getattr(ffield, 'name', '')
+                file_ext = os.path.splitext(uploaded_filename)[1].lower() if uploaded_filename else ''
+                
+                # Leer bytes del archivo
                 from io import BytesIO as _BytesIO
                 stable_bytes = b''
                 try:
@@ -107,31 +112,76 @@ def upload_document(request):
                     except Exception:
                         stable_bytes = b''
 
-                try:
-                    from PIL import Image as _Image  # type: ignore
-                    _Image.open(_BytesIO(stable_bytes)).verify()
-                    _img = _Image.open(_BytesIO(stable_bytes)).convert('RGB')
-                    _buf = _BytesIO()
-                    _img.save(_buf, format='JPEG')
-                    jpeg_bytes = _buf.getvalue()
-                except Exception as _pil_exc:
-                    logger.warning(f"[FIX-CREATE-OCR] PIL.verify() falló; usando bytes crudos: {_pil_exc}")
-                    jpeg_bytes = stable_bytes
-
-                # 1) Subir JPG fijo por ID con bytes normalizados
-                jpg_blob_name = f"documents/{document.id}.jpg"
-                _upload_blob_overwrite('vea-connect-files', jpg_blob_name, jpeg_bytes, 'image/jpeg')
-
-                # 2) Ejecutar OCR desde bytes normalizados
-                ocr_text = ''
-                try:
-                    content_file = ContentFile(jpeg_bytes, name=f"{document.id}.jpg")
-                    extracted = convert_document_to_text(content_file)
-                    if isinstance(extracted, str) and not extracted.startswith('Error al extraer contenido'):
-                        ocr_text = extracted
-                except Exception as ocr_exc:
-                    logger.warning(f"[FIX-CREATE-OCR] OCR falló; se continúa con título/descripcion: {ocr_exc}")
+                # Procesar según tipo de archivo
+                if file_ext == '.pdf':
+                    # PDF: Usar convert_document_to_text que maneja PDFs correctamente
+                    blob_name = f"documents/{document.id}.pdf"
+                    file_type = 'pdf'
+                    content_type = 'application/pdf'
+                    
+                    # Subir PDF original
+                    _upload_blob_overwrite('vea-connect-files', blob_name, stable_bytes, content_type)
+                    
+                    # Extraer texto usando convert_document_to_text (maneja PDFs con Form Recognizer)
                     ocr_text = ''
+                    try:
+                        content_file = ContentFile(stable_bytes, name=f"{document.id}.pdf")
+                        extracted = convert_document_to_text(content_file)
+                        if isinstance(extracted, str) and not extracted.startswith('Error al extraer contenido'):
+                            ocr_text = extracted
+                    except Exception as ocr_exc:
+                        logger.warning(f"[FIX-CREATE-PDF] Extracción de texto PDF falló: {ocr_exc}")
+                        ocr_text = ''
+                        
+                elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.tif']:
+                    # IMAGEN: Normalizar con PIL y usar OCR
+                    try:
+                        from PIL import Image as _Image  # type: ignore
+                        _Image.open(_BytesIO(stable_bytes)).verify()
+                        _img = _Image.open(_BytesIO(stable_bytes)).convert('RGB')
+                        _buf = _BytesIO()
+                        _img.save(_buf, format='JPEG')
+                        processed_bytes = _buf.getvalue()
+                    except Exception as _pil_exc:
+                        logger.warning(f"[FIX-CREATE-OCR] PIL.verify() falló; usando bytes crudos: {_pil_exc}")
+                        processed_bytes = stable_bytes
+                    
+                    blob_name = f"documents/{document.id}.{file_ext.lstrip('.')}"
+                    file_type = file_ext.lstrip('.')
+                    content_type = f'image/{file_ext.lstrip(".")}'
+                    
+                    # Subir imagen normalizada
+                    _upload_blob_overwrite('vea-connect-files', blob_name, processed_bytes, content_type)
+                    
+                    # Ejecutar OCR desde bytes normalizados
+                    ocr_text = ''
+                    try:
+                        content_file = ContentFile(processed_bytes, name=f"{document.id}.{file_ext.lstrip('.')}")
+                        extracted = convert_document_to_text(content_file)
+                        if isinstance(extracted, str) and not extracted.startswith('Error al extraer contenido'):
+                            ocr_text = extracted
+                    except Exception as ocr_exc:
+                        logger.warning(f"[FIX-CREATE-OCR] OCR falló; se continúa con título/descripcion: {ocr_exc}")
+                        ocr_text = ''
+                else:
+                    # OTROS TIPOS: Guardar original y usar convert_document_to_text
+                    blob_name = f"documents/{document.id}{file_ext}" if file_ext else f"documents/{document.id}"
+                    file_type = file_ext.lstrip('.') if file_ext else 'unknown'
+                    content_type = 'application/octet-stream'
+                    
+                    # Subir archivo original
+                    _upload_blob_overwrite('vea-connect-files', blob_name, stable_bytes, content_type)
+                    
+                    # Intentar extraer texto
+                    ocr_text = ''
+                    try:
+                        content_file = ContentFile(stable_bytes, name=f"{document.id}{file_ext}" if file_ext else f"{document.id}")
+                        extracted = convert_document_to_text(content_file)
+                        if isinstance(extracted, str) and not extracted.startswith('Error al extraer contenido'):
+                            ocr_text = extracted
+                    except Exception as ocr_exc:
+                        logger.warning(f"[FIX-CREATE-OTHER] Extracción de texto falló: {ocr_exc}")
+                        ocr_text = ''
 
                 # 3) TXT base y subida {id}.txt
                 title = form.cleaned_data.get('title', '')
@@ -160,7 +210,7 @@ def upload_document(request):
                     'metadata': json.dumps({
                         'category': category,
                         'description': description,
-                        'filename': f"documents/{document.id}.jpg",
+                        'filename': blob_name,
                         'ocr_text': ocr_text or ''
                     })
                 }
@@ -172,8 +222,8 @@ def upload_document(request):
                 document.title = title
                 document.description = description
                 document.category = category
-                document.file.name = jpg_blob_name
-                document.file_type = 'jpg'
+                document.file.name = blob_name
+                document.file_type = file_type
                 document.processing_state = ProcessingState.READY
                 document.is_processed = True
                 document.user = request.user
@@ -342,34 +392,79 @@ def edit_document(request, pk):
                     logger.warning(f"[FIX-EDIT-OCR] No se pudo reabrir desde storage: {_open_exc}")
                     stable_bytes = b''
 
-                # Validar/normalizar imagen con PIL y subir a Azure Blob
+                # Detectar extensión del archivo recién cargado
+                uploaded_filename = new_file.name if hasattr(new_file, 'name') else getattr(ffield, 'name', '')
+                file_ext = os.path.splitext(uploaded_filename)[1].lower() if uploaded_filename else ''
+
+                # Procesar según tipo de archivo (misma lógica que en CREATE)
                 from io import BytesIO as _BytesIO
-                try:
-                    from PIL import Image as _Image  # type: ignore
-                    _Image.open(_BytesIO(stable_bytes)).verify()
-                    _img = _Image.open(_BytesIO(stable_bytes)).convert('RGB')
-                    _buf = _BytesIO()
-                    _img.save(_buf, format='JPEG')
-                    jpeg_bytes = _buf.getvalue()
-                except Exception as _pil_exc:
-                    logger.warning(f"[FIX-EDIT-OCR] PIL.verify() falló; usando bytes crudos: {_pil_exc}")
-                    jpeg_bytes = stable_bytes
+                if file_ext == '.pdf':
+                    blob_name = f"documents/{document.id}.pdf"
+                    content_type = 'application/pdf'
+                    file_type = 'pdf'
+                    _upload_blob_overwrite('vea-connect-files', blob_name, stable_bytes, content_type)
+                    document.file.name = blob_name
+                    document.file_type = file_type
 
-                # Subir imagen como documents/{id}.jpg con bytes normalizados
-                jpg_blob_name = f"documents/{document.id}.jpg"
-                _upload_blob_overwrite('vea-connect-files', jpg_blob_name, jpeg_bytes, 'image/jpeg')
+                    try:
+                        content_file = ContentFile(stable_bytes, name=f"{document.id}.pdf")
+                        extracted = convert_document_to_text(content_file)
+                        if isinstance(extracted, str) and not extracted.startswith('Error al extraer contenido'):
+                            ocr_text = extracted
+                        else:
+                            ocr_text = ""
+                    except Exception as _ocr_exc:
+                        logger.warning(f"[FIX-EDIT-PDF] OCR falló: {_ocr_exc}")
+                        ocr_text = ""
 
-                # Actualizar campos de archivo en el modelo (sin disparar pipeline)
-                document.file.name = jpg_blob_name
-                document.file_type = 'jpg'
+                elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.tif']:
+                    try:
+                        from PIL import Image as _Image  # type: ignore
+                        _Image.open(_BytesIO(stable_bytes)).verify()
+                        _img = _Image.open(_BytesIO(stable_bytes)).convert('RGB')
+                        _buf = _BytesIO()
+                        _img.save(_buf, format='JPEG')
+                        normalized_bytes = _buf.getvalue()
+                    except Exception as _pil_exc:
+                        logger.warning(f"[FIX-EDIT-OCR] PIL.verify() falló; usando bytes crudos: {_pil_exc}")
+                        normalized_bytes = stable_bytes
 
-                # Ejecutar OCR usando los bytes normalizados
-                try:
-                    content_file = ContentFile(jpeg_bytes, name=f"{document.id}.jpg")
-                    ocr_text = convert_document_to_text(content_file)
-                except Exception as _ocr_exc:
-                    logger.warning(f"[FIX-EDIT-OCR] OCR falló: {_ocr_exc}")
-                    ocr_text = ""
+                    blob_name = f"documents/{document.id}.jpg"
+                    content_type = 'image/jpeg'
+                    file_type = 'jpg'
+                    _upload_blob_overwrite('vea-connect-files', blob_name, normalized_bytes, content_type)
+                    document.file.name = blob_name
+                    document.file_type = file_type
+
+                    try:
+                        content_file = ContentFile(normalized_bytes, name=f"{document.id}.jpg")
+                        extracted = convert_document_to_text(content_file)
+                        if isinstance(extracted, str) and not extracted.startswith('Error al extraer contenido'):
+                            ocr_text = extracted
+                        else:
+                            ocr_text = ""
+                    except Exception as _ocr_exc:
+                        logger.warning(f"[FIX-EDIT-OCR] OCR falló: {_ocr_exc}")
+                        ocr_text = ""
+
+                else:
+                    blob_name = f"documents/{document.id}{file_ext}" if file_ext else f"documents/{document.id}"
+                    content_type = 'application/octet-stream'
+                    file_type = file_ext.lstrip('.') if file_ext else 'unknown'
+                    _upload_blob_overwrite('vea-connect-files', blob_name, stable_bytes, content_type)
+                    document.file.name = blob_name
+                    document.file_type = file_type
+
+                    try:
+                        content_file = ContentFile(stable_bytes, name=f"{document.id}{file_ext}" if file_ext else f"{document.id}")
+                        extracted = convert_document_to_text(content_file)
+                        if isinstance(extracted, str) and not extracted.startswith('Error al extraer contenido'):
+                            ocr_text = extracted
+                        else:
+                            ocr_text = ""
+                    except Exception as _ocr_exc:
+                        logger.warning(f"[FIX-EDIT-OTHER] OCR falló: {_ocr_exc}")
+                        ocr_text = ""
 
             # [EDIT-NOFILE-OCR-AZURE] Si NO se sube nueva imagen, leer desde Azure Blob y extraer OCR
             if not new_file and (ocr_text is None or ocr_text == ""):

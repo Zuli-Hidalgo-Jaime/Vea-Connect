@@ -30,11 +30,19 @@ class AzureVisionService:
         """
         self.vision_endpoint = getattr(settings, 'VISION_ENDPOINT', None)
         self.vision_key = getattr(settings, 'VISION_KEY', None)
+        self.form_recognizer_endpoint = getattr(settings, 'FORM_RECOGNIZER_ENDPOINT', self.vision_endpoint)
+        self.form_recognizer_key = getattr(settings, 'FORM_RECOGNIZER_KEY', self.vision_key)
         
         if not self.vision_endpoint or not self.vision_key:
             raise ValueError(
                 "Azure Computer Vision configuration is missing. "
                 "Please set VISION_ENDPOINT and VISION_KEY in your environment variables."
+            )
+        
+        if not self.form_recognizer_endpoint or not self.form_recognizer_key:
+            raise ValueError(
+                "Azure Form Recognizer configuration is missing. "
+                "Please set FORM_RECOGNIZER_ENDPOINT and FORM_RECOGNIZER_KEY (or reuse VISION_*) in your environment variables."
             )
         
         # Initialize Computer Vision client
@@ -45,8 +53,8 @@ class AzureVisionService:
         
         # Initialize Document Analysis client for PDF processing
         self.document_client = DocumentAnalysisClient(
-            endpoint=self.vision_endpoint,
-            credential=AzureKeyCredential(self.vision_key)
+            endpoint=self.form_recognizer_endpoint,
+            credential=AzureKeyCredential(self.form_recognizer_key)
         )
     
     def extract_text_from_image(self, file_path: str) -> str:

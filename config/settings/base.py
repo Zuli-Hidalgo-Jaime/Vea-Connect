@@ -47,6 +47,10 @@ BLOB_CONTAINER_NAME = os.environ.get('BLOB_CONTAINER_NAME')
 VISION_ENDPOINT = os.environ.get('VISION_ENDPOINT')
 VISION_KEY = os.environ.get('VISION_KEY')
 
+# Azure Form Recognizer (Document Intelligence) Configuration
+FORM_RECOGNIZER_ENDPOINT = os.environ.get('FORM_RECOGNIZER_ENDPOINT', VISION_ENDPOINT)
+FORM_RECOGNIZER_KEY = os.environ.get('FORM_RECOGNIZER_KEY', VISION_KEY)
+
 # Azure AI Search Configuration
 # Este cambio se realizó basado en un análisis de costos y mantenimiento. 
 # Azure AI Search ofrece un menor costo operativo y mayor facilidad de gestión 
