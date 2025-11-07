@@ -93,6 +93,10 @@
                 margin-left: 0;
                 padding: 1.5rem 0.5rem;
             }
+            .dashboard-header {
+                width: 100% !important;
+                left: 0 !important;
+            }
         }
         @media (max-width: 575.98px) {
             .dashboard-header {
@@ -120,7 +124,7 @@
         </ul>
     </nav>
     <div class="main-content">
-        <header class="dashboard-header text-white px-4 d-flex align-items-center justify-content-between shadow" style="background:#0f1d40; position:fixed; top:0; left:0; right:0; z-index:1000; height:70px; border-bottom:3px solid #0d1736; font-size:1.5rem; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,0.07);">
+        <header class="dashboard-header text-white px-4 d-flex align-items-center justify-content-between shadow" style="background:#0f1d40; position:fixed; top:0; left:240px; right:0; width:calc(100% - 240px); z-index:1000; height:70px; border-bottom:3px solid #0d1736; font-size:1.5rem; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,0.07);">
             <!-- Botón hamburguesa solo visible en móviles/tablets -->
             <button id="sidebarToggle" class="btn btn-outline-light d-lg-none me-3" style="font-size:1.5rem;" aria-label="Abrir menú">
                 <i class="fa fa-bars"></i>
