@@ -118,6 +118,8 @@ def upload_document(request):
                         stable_bytes = b''
 
                 # Procesar según tipo de archivo
+                if file_ext != '.pdf' and stable_bytes.startswith(b'%PDF'):
+                    file_ext = '.pdf'
                 if file_ext == '.pdf':
                     # PDF: Usar convert_document_to_text que maneja PDFs correctamente
                     blob_name = f"documents/{document.id}.pdf"
@@ -407,6 +409,8 @@ def edit_document(request, pk):
 
                 # Procesar según tipo de archivo (misma lógica que en CREATE)
                 from io import BytesIO as _BytesIO
+                if file_ext != '.pdf' and stable_bytes.startswith(b'%PDF'):
+                    file_ext = '.pdf'
                 if file_ext == '.pdf':
                     blob_name = f"documents/{document.id}.pdf"
                     content_type = 'application/pdf'
