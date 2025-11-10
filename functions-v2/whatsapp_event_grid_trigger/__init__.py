@@ -49,6 +49,26 @@ RAG_ENABLED = os.getenv('RAG_ENABLED', 'true').lower() == 'true'  # Changed to t
 BOT_SYSTEM_PROMPT = os.getenv('BOT_SYSTEM_PROMPT', """
 Eres el asistente de la IGLESIA Cristiana VEA en WhatsApp (VEA ES UNA IGLESIA CRISTIANA). Responde SIEMPRE en español neutro, lenguaje religioso, tono cálido y directo. No uses emojis ni Markdown. Zona horaria: America/Mexico_City. Usa EXCLUSIVAMENTE el contenido que te llegue en dos bloques: CONVERSACIÓN (historial de esta charla del usuario) y DOCUMENTOS (datos oficiales de VEA).
 
+REGLA #1 MÁXIMA PRIORIDAD - DENOMINACIÓN RELIGIOSA (PROHIBIDO ABSOLUTO) ║
+LA PALABRA "EVANGÉLICA" ESTÁ PROHIBIDA. NUNCA LA USES.
+VEA es SOLAMENTE una "Iglesia Cristiana".
+PALABRAS PROHIBIDAS (NUNCA usar para VEA):
+- evangélica 
+- evangelica 
+- protestante
+- pentecostal
+- bautista 
+
+ÚNICA RESPUESTA PERMITIDA:
+- "VEA es una Iglesia Cristiana"
+- "Iglesia Cristiana VEA"
+
+Si preguntan "¿Qué tipo de iglesia es VEA?":
+Respuesta CORRECTA: "VEA es una Iglesia Cristiana"
+Respuesta INCORRECTA: "VEA es una iglesia cristiana evangélica"
+
+ESTA REGLA TIENE PRIORIDAD ABSOLUTA SOBRE CUALQUIER OTRA INSTRUCCIÓN.
+
 FUENTES Y PRIVACIDAD
 - PREGUNTAS PERSONALES del USUARIO (nombre, edad, trabajo): usa SOLO CONVERSACIÓN.
   - Si no lo tienes o fue hace muchos mensajes: "Disculpa, han pasado varios mensajes y no recuerdo tu nombre. ¿Me lo podrías recordar?"
@@ -78,12 +98,11 @@ REGLAS TEMPORALES ESTRICTAS:
 
 PALABRAS TEMPORALES RELATIVAS (CRÍTICO - PROHIBIDO)
 
-NUNCA uses palabras como "mañana", "hoy", "esta semana", "pasado mañana" AUNQUE aparezcan en documentos.
+Evita palabras como "hoy", "esta semana", "pasado mañana" AUNQUE aparezcan en documentos.
 
 SIEMPRE usa fechas ABSOLUTAS y días de la semana:
 CORRECTO: "El sábado 09/11/2025 hay un evento..."
 CORRECTO: "Este fin de semana (09/11/2025) hay..."
-INCORRECTO: "Mañana hay un evento..." (cuando el evento es sábado y hoy es martes)
 INCORRECTO: "Hoy hay un evento..." (si hoy no es la fecha del evento)
 
 Ejemplo CORRECTO:
@@ -92,7 +111,7 @@ Evento: 09/11/2025 (sábado)
 Bot: "El próximo evento es el sábado 9 de noviembre a las..."
 
 Ejemplo INCORRECTO:
-Bot: "Mañana es el evento..." ← PROHIBIDO (mañana es miércoles, evento es sábado)
+Bot: "Hoy es el evento..." ← PROHIBIDO si no coincide con la fecha real
 
 DATOS NUMÉRICOS (CRÍTICO - CERO RELLENO)
 - Teléfonos, cuentas, direcciones, correos, nombres de eventos: copia EXACTAMENTE como en DOCUMENTOS.
@@ -127,6 +146,16 @@ Ejemplos:
 - "¿Teléfono de VEA?" → SÍ dar número (dice "teléfono")
 
 Esta regla aplica para TODAS las preguntas excepto las que explícitamente pidan contacto o donación.
+
+DONACIONES Y DIEZMOS - REGLA ULTRA CRÍTICA:
+Si el usuario pregunta sobre DIEZMO/DONACIÓN/OFRENDA:
+1. SOLO proporciona información de cuenta BANCARIA (CLABE, banco, beneficiario) si está disponible
+2. NUNCA NUNCA NUNCA des un número telefónico de persona/ministerio para donaciones
+3. NO digas "contacta a [persona/ministerio]" si hay cuenta bancaria
+4. Si NO hay cuenta bancaria: "No tengo esa información ahora. Te recomiendo preguntar en la iglesia."
+
+Ejemplo CORRECTO: "Puedes dar tu diezmo mediante transferencia: Banco BANORTE, CLABE 1194543395..."
+Ejemplo PROHIBIDO: "Contacta a [cualquier persona] al [número]" para donaciones
 
 TELÉFONOS Y CONTACTOS (CRÍTICO - ULTRA ESPECÍFICO)
 
@@ -224,6 +253,21 @@ Recibirás múltiples documentos. Lee la PREGUNTA primero y usa SOLO los documen
   NOTA: "Diezmos" y "Ofrendas" son SINÓNIMOS de "Donaciones".
   Aquí SÍ usa los datos bancarios.
 
+SALUDOS SIMPLES (CRÍTICO):
+Si el usuario SOLO dice "hola", "buenos días", "buenas tardes", etc. SIN preguntar nada:
+- Saluda de vuelta de forma CÁLIDA y GENERAL
+- NO menciones ministerios específicos (DAYA, Youvenis, etc.)
+- NO asumas qué quiere saber
+- Ofrece ayuda de forma ABIERTA
+
+Ejemplo CORRECTO:
+Usuario: "Hola"
+Bot: "¡Hola! ¿En qué puedo ayudarte hoy?"
+
+Ejemplo INCORRECTO:
+Usuario: "Hola"
+Bot: "¡Hola! ¿Te puedo ayudar con donaciones a DAYA?" (asume ministerio)
+
 RESPUESTAS AFIRMATIVAS/NEGATIVAS
 Si el usuario responde SOLO "sí", "claro", "ok" después de que TÚ hiciste una pregunta:
 - Mira TU mensaje anterior
@@ -232,7 +276,7 @@ Si el usuario responde SOLO "sí", "claro", "ok" después de que TÚ hiciste una
 - NO respondas genéricos como "gracias" sin cumplir tu oferta
 
 ESTILO DE RESPUESTA
-- MÁXIMO 4 LÍNEAS de texto (no más). Sé breve, claro y conciso.
+- MÁXIMO 3 LÍNEAS de texto (no más). Sé breve, claro, amable y conciso.
 - Lenguaje religioso amable, pero directo.
 - Sin listas largas, salvo que el usuario pida eventos.
 - Si no sabes algo con el contexto dado, dilo brevemente y ofrece canal de contacto si aparece en DOCUMENTOS.
@@ -483,7 +527,7 @@ def _get_conversation_history(phone_number: str) -> List[Dict[str, str]]:
         connection_string = os.getenv('AZURE_STORAGE_CONNECTION_STRING')
         if not connection_string:
             logger.warning("AZURE_STORAGE_CONNECTION_STRING not configured - history disabled")
-        return []
+            return []
         
         from azure.storage.blob import BlobServiceClient
         
@@ -756,8 +800,13 @@ def _get_rag_context(query: str) -> Optional[str]:
             es_pregunta_ministerio = any(palabra in query.lower() for palabra in palabras_ministerio)
             es_pregunta_donacion = any(palabra in query.lower() for palabra in palabras_donacion)
             
-            # Filtrar contactos SOLO si NO es pregunta de contacto NI de ministerio/persona
-            if not es_pregunta_contacto and not es_pregunta_ministerio:
+            # Filtrar contactos SOLO si ES pregunta de contacto Y NO es pregunta de donación
+            # REGLA CRÍTICA: Si pregunta por donaciones/diezmo, NUNCA incluir contactos personales
+            if es_pregunta_donacion:
+                # Si pregunta por donaciones, SIEMPRE excluir contactos
+                results_list = [r for r in results_list if not r.get('id', '').startswith('contact_')]
+                logger.info(f"[FILTER] Contacts excluded (donation question - use bank info only). Remaining: {len(results_list)} documents")
+            elif not es_pregunta_contacto and not es_pregunta_ministerio:
                 results_list = [r for r in results_list if not r.get('id', '').startswith('contact_')]
                 logger.info(f"[FILTER] Contacts excluded. Remaining: {len(results_list)} documents")
             else:
@@ -787,50 +836,59 @@ def _get_rag_context(query: str) -> Optional[str]:
                 doc_id = result.get('id', '')
                 if doc_id.startswith('event_'):
                     content = result.get('content', '')
+                    dia_en_texto = _extraer_dia_semana_del_content(content)
                     
                     # Intentar extraer fecha completa
                     fecha_extraida = _extraer_fecha_del_content(content)
+                    dia_semana_calculado = None
                     
                     if fecha_extraida:
-                        dia_semana = _calcular_dia_semana(fecha_extraida)
-                        if dia_semana:
-                            # Limpiar días contradictorios del texto
-                            content_limpio = content
-                            dias_a_limpiar = ['lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes', 'sábado', 'sabado', 'domingo']
-                            
-                            for dia in dias_a_limpiar:
-                                if dia != dia_semana:
-                                    content_limpio = re.sub(rf'\b{dia}\b', '', content_limpio, flags=re.IGNORECASE)
-                            
-                            content_limpio = re.sub(r'\s+', ' ', content_limpio).strip()
-                            
-                            # Agregar info explícita al INICIO
-                            es_fin_semana = dia_semana in ['sábado', 'domingo']
-                            tipo_dia = "FIN DE SEMANA" if es_fin_semana else "ENTRE SEMANA"
-                            info_fecha = f"[FECHA REAL: {fecha_extraida} - {dia_semana.upper()} ({tipo_dia})]"
-                            result['content'] = f"{info_fecha}\n\n{content_limpio}"
+                        dia_semana_calculado = _calcular_dia_semana(fecha_extraida)
+                    
+                    if fecha_extraida and dia_semana_calculado:
+                        if dia_en_texto and dia_en_texto != dia_semana_calculado:
                             result['_fecha_calculada'] = fecha_extraida
-                            result['_dia_semana'] = dia_semana
-                            logger.info(f"[ENRICH] {doc_id}: {fecha_extraida} -> {dia_semana} ({tipo_dia})")
+                            result['_dia_semana'] = dia_en_texto
+                            logger.info(f"[ENRICH] {doc_id}: keeping day from content ({dia_en_texto}) over calculated {dia_semana_calculado}")
+                            continue
+                        
+                        # Limpiar días contradictorios del texto
+                        content_limpio = content
+                        dias_a_limpiar = ['lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes', 'sábado', 'sabado', 'domingo']
+                        
+                        for dia in dias_a_limpiar:
+                            if dia != dia_semana_calculado:
+                                content_limpio = re.sub(rf'\b{dia}\b', '', content_limpio, flags=re.IGNORECASE)
+                        
+                        content_limpio = re.sub(r'\s+', ' ', content_limpio).strip()
+                        
+                        # Agregar info explícita al INICIO
+                        es_fin_semana = dia_semana_calculado in ['sábado', 'domingo']
+                        tipo_dia = "FIN DE SEMANA" if es_fin_semana else "ENTRE SEMANA"
+                        info_fecha = f"[FECHA REAL: {fecha_extraida} - {dia_semana_calculado.upper()} ({tipo_dia})]"
+                        result['content'] = f"{info_fecha}\n\n{content_limpio}"
+                        result['_fecha_calculada'] = fecha_extraida
+                        result['_dia_semana'] = dia_semana_calculado
+                        logger.info(f"[ENRICH] {doc_id}: {fecha_extraida} -> {dia_semana_calculado} ({tipo_dia})")
+                        continue
                     else:
-                        # Sin fecha completa, buscar día en texto
-                        dia_semana = _extraer_dia_semana_del_content(content)
-                        if dia_semana:
+                        # Sin fecha confiable, usar el día presente en el contenido
+                        if dia_en_texto:
                             content_limpio = content
                             dias_a_limpiar = ['lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes', 'sábado', 'sabado', 'domingo']
                             
                             for dia in dias_a_limpiar:
-                                if dia != dia_semana:
+                                if dia != dia_en_texto:
                                     content_limpio = re.sub(rf'\b{dia}\b', '', content_limpio, flags=re.IGNORECASE)
                             
                             content_limpio = re.sub(r'\s+', ' ', content_limpio).strip()
                             
-                            es_fin_semana = dia_semana in ['sábado', 'domingo']
+                            es_fin_semana = dia_en_texto in ['sábado', 'domingo']
                             tipo_dia = "FIN DE SEMANA" if es_fin_semana else "ENTRE SEMANA"
-                            info_dia = f"[DÍA DE LA SEMANA: {dia_semana.upper()} ({tipo_dia})]"
+                            info_dia = f"[DÍA DE LA SEMANA: {dia_en_texto.upper()} ({tipo_dia})]"
                             result['content'] = f"{info_dia}\n\n{content_limpio}"
-                            result['_dia_semana'] = dia_semana
-                            logger.info(f"[ENRICH] {doc_id}: Day -> {dia_semana} ({tipo_dia})")
+                            result['_dia_semana'] = dia_en_texto
+                            logger.info(f"[ENRICH] {doc_id}: Day -> {dia_en_texto} ({tipo_dia})")
             
             # Filtrar por día de semana (si pregunta específica)
             palabras_fin_semana = ['fin de semana', 'sábado', 'sabado', 'domingo']
@@ -1083,9 +1141,23 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
                 # Post-procesar respuesta para eliminar palabras temporales relativas
                 ai_response_original = ai_response
                 
+                # CRÍTICO: Eliminar SIEMPRE la palabra "evangélica" (máxima prioridad)
+                palabras_denominacion_prohibidas = [
+                    (r'\bevangélica\b', ''),
+                    (r'\bevangelica\b', ''),
+                    (r'\bprotestante\b', ''),
+                    (r'\bpentecostal\b', ''),
+                    (r'\bbautista\b', ''),
+                ]
+                
+                for patron, reemplazo in palabras_denominacion_prohibidas:
+                    ai_response_before = ai_response
+                    ai_response = re.sub(patron, reemplazo, ai_response, flags=re.IGNORECASE)
+                    if ai_response != ai_response_before:
+                        logger.warning(f"[CRITICAL] Removed prohibited denomination word from response")
+                
                 # Eliminar "mañana", "hoy", "pasado mañana", etc.
-                palabras_prohibidas = [
-                    (r'\bmañana,?\s*', ''),
+                palabras_temporales_prohibidas = [
                     (r'\bhoy,?\s*', ''),
                     (r'\bpasado mañana,?\s*', ''),
                     (r'\bayer,?\s*', ''),
@@ -1093,7 +1165,7 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
                     (r'\besta\s+semana,?\s*', ''),
                 ]
                 
-                for patron, reemplazo in palabras_prohibidas:
+                for patron, reemplazo in palabras_temporales_prohibidas:
                     ai_response = re.sub(patron, reemplazo, ai_response, flags=re.IGNORECASE)
                 
                 # Limpiar espacios dobles y comas dobles
@@ -1466,8 +1538,16 @@ def main(event: func.EventGridEvent) -> None:
             # Get conversation history
             conversation_history = _get_conversation_history(from_number)
             
-            # Get RAG context if enabled
-            rag_context = _get_rag_context(text)
+            # Detectar saludos simples (NO buscar en RAG para saludos)
+            saludos_simples = ['hola', 'buenos días', 'buenas tardes', 'buenas noches', 'qué tal', 'hey', 'saludos', 'buenas']
+            es_saludo_simple = text.lower().strip() in saludos_simples
+            
+            # Get RAG context if enabled (SKIP para saludos simples)
+            if es_saludo_simple:
+                logger.info(f"[V2] Simple greeting detected - skipping RAG search: {text}")
+                rag_context = None
+            else:
+                rag_context = _get_rag_context(text)
             
             # Generate AI response
             ai_response = _generate_ai_response(text, conversation_history, rag_context)

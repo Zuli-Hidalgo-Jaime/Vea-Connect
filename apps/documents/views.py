@@ -21,7 +21,16 @@ from pathlib import Path
 from django.core.files.base import ContentFile
 from django.utils import timezone
 import json
-from tasks.document_pipeline import convert_document_to_text, generate_embeddings
+from tasks.document_pipeline import (
+    convert_document_to_text,
+    generate_embeddings,
+    split_text_into_chunks,
+    get_document_chunk_ids,
+    DEFAULT_CHUNK_MAX_CHARS,
+    DEFAULT_CHUNK_OVERLAP_SEGMENTS,
+    CHUNK_VERSION,
+    GENERIC_CHUNK_MODE,
+)
 from services.search_index_service import search_index_service
 
 logger = logging.getLogger(__name__)
@@ -199,8 +208,17 @@ def upload_document(request):
                 txt_blob_name = f"{document.id}.txt"
                 _upload_blob_overwrite('vea-connect-files', txt_blob_name, embedding_text.encode('utf-8'), 'text/plain; charset=utf-8')
 
-                # 4) Embeddings y upsert
-                vector = generate_embeddings(embedding_text)
+                # 4) Embeddings por chunks y upsert
+                chunk_texts, chunk_mode = split_text_into_chunks(
+                    embedding_text,
+                    max_chars=DEFAULT_CHUNK_MAX_CHARS,
+                    overlap_segments=DEFAULT_CHUNK_OVERLAP_SEGMENTS
+                )
+                if not chunk_texts:
+                    chunk_texts = [embedding_text]
+                    chunk_mode = GENERIC_CHUNK_MODE
+
+                total_chunks = len(chunk_texts)
                 document_vector_id = f"doc_{document.id}"
 
                 created_dt = document.date or timezone.now()
@@ -211,19 +229,26 @@ def upload_document(request):
                         created_dt = timezone.now()
                 created_at_iso = created_dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
 
-                metadata = {
-                    'title': title,
-                    'created_at': created_at_iso,
-                    'metadata': json.dumps({
-                        'category': category,
-                        'description': description,
-                        'filename': blob_name,
-                        'ocr_text': ocr_text or ''
-                    })
-                }
-                if isinstance(vector, list) and vector:
-                    metadata['embedding'] = vector
-                search_index_service.upsert_document(document_vector_id, embedding_text, metadata)
+                for idx, chunk_text in enumerate(chunk_texts):
+                    chunk_id = document_vector_id if total_chunks == 1 else f"{document_vector_id}_chunk_{idx:03d}"
+                    chunk_metadata = {
+                        'title': title,
+                        'created_at': created_at_iso,
+                        'metadata': json.dumps({
+                            'category': category,
+                            'description': description,
+                            'filename': blob_name,
+                            'ocr_text': ocr_text if idx == 0 else '',
+                            'source_id': document_vector_id,
+                            'chunk_index': idx,
+                        'chunk_count': total_chunks,
+                        'chunk_mode': chunk_mode
+                        })
+                    }
+                    vector = generate_embeddings(chunk_text)
+                    if isinstance(vector, list) and vector:
+                        chunk_metadata['embedding'] = vector
+                    search_index_service.upsert_document(chunk_id, chunk_text, chunk_metadata)
 
                 # 5) Actualizar y guardar
                 document.title = title
@@ -234,6 +259,17 @@ def upload_document(request):
                 document.processing_state = ProcessingState.READY
                 document.is_processed = True
                 document.user = request.user
+                doc_metadata = document.metadata if isinstance(document.metadata, dict) else {}
+                doc_metadata = doc_metadata or {}
+                doc_metadata['chunking'] = {
+                    'version': CHUNK_VERSION,
+                    'chunk_count': total_chunks,
+                    'max_chars': DEFAULT_CHUNK_MAX_CHARS,
+                    'overlap_segments': DEFAULT_CHUNK_OVERLAP_SEGMENTS,
+                    'mode': chunk_mode,
+                    'last_indexed_at': timezone.now().isoformat()
+                }
+                document.metadata = doc_metadata
                 document.save()
 
                 messages.success(request, f"El documento '{document.title}' se creó correctamente.")
@@ -537,8 +573,7 @@ def edit_document(request, pk):
             txt_blob_name = f"{document.id}.txt"
             _upload_blob_overwrite('vea-connect-files', txt_blob_name, embedding_text.encode('utf-8'), 'text/plain; charset=utf-8')
 
-            # Generar embeddings y upsert en Azure Search con key estable
-            vector = generate_embeddings(embedding_text)
+            # Generar embeddings chunked y upsert en Azure Search con key estable
             document_vector_id = f"doc_{document.id}"
 
             created_dt = document.date or timezone.now()
@@ -549,19 +584,42 @@ def edit_document(request, pk):
                     created_dt = timezone.now()
             created_at_iso = created_dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
 
-            metadata = {
-                'title': new_title,
-                'created_at': created_at_iso,
-                'metadata': json.dumps({
-                    'category': new_category,
-                    'description': new_description,
-                    'filename': getattr(getattr(document, 'file', None), 'name', None),
-                    'ocr_text': ocr_text or ''
-                })
-            }
-            if isinstance(vector, list) and vector:
-                metadata['embedding'] = vector
-            search_index_service.upsert_document(document_vector_id, embedding_text, metadata)
+            chunk_texts, chunk_mode = split_text_into_chunks(
+                embedding_text,
+                max_chars=DEFAULT_CHUNK_MAX_CHARS,
+                overlap_segments=DEFAULT_CHUNK_OVERLAP_SEGMENTS
+            )
+            if not chunk_texts:
+                chunk_texts = [embedding_text]
+                chunk_mode = GENERIC_CHUNK_MODE
+
+            total_chunks = len(chunk_texts)
+
+            # Limpiar documentos previos en el índice
+            existing_chunk_ids = get_document_chunk_ids(document.id, document.metadata)
+            for chunk_id in existing_chunk_ids:
+                search_index_service.delete_document(chunk_id)
+
+            for idx, chunk_text in enumerate(chunk_texts):
+                chunk_id = document_vector_id if total_chunks == 1 else f"{document_vector_id}_chunk_{idx:03d}"
+                chunk_metadata = {
+                    'title': new_title,
+                    'created_at': created_at_iso,
+                    'metadata': json.dumps({
+                        'category': new_category,
+                        'description': new_description,
+                        'filename': getattr(getattr(document, 'file', None), 'name', None),
+                        'ocr_text': ocr_text if idx == 0 else '',
+                        'source_id': document_vector_id,
+                        'chunk_index': idx,
+                    'chunk_count': total_chunks,
+                    'chunk_mode': chunk_mode
+                    })
+                }
+                vector = generate_embeddings(chunk_text)
+                if isinstance(vector, list) and vector:
+                    chunk_metadata['embedding'] = vector
+                search_index_service.upsert_document(chunk_id, chunk_text, chunk_metadata)
 
             # Actualizar campos del documento sin marcar PENDING
             document.title = new_title
@@ -572,6 +630,17 @@ def edit_document(request, pk):
                 document.date = datetime.datetime.now()
             document.processing_state = ProcessingState.READY
             document.is_processed = True
+            doc_metadata = document.metadata if isinstance(document.metadata, dict) else {}
+            doc_metadata = doc_metadata or {}
+            doc_metadata['chunking'] = {
+                'version': CHUNK_VERSION,
+                'chunk_count': total_chunks,
+                'max_chars': DEFAULT_CHUNK_MAX_CHARS,
+                'overlap_segments': DEFAULT_CHUNK_OVERLAP_SEGMENTS,
+                'mode': chunk_mode,
+                'last_indexed_at': timezone.now().isoformat()
+            }
+            document.metadata = doc_metadata
             document.save()
 
             messages.success(request, 'Documento actualizado correctamente.')
@@ -633,12 +702,16 @@ def delete_document(request, pk):
             try:
                 from services.search_index_service import search_index_service as _sis
                 if _sis.client:
-                    search_key = f"doc_{document.id}"
-                    deleted = _sis.delete_document(search_key)
-                    if deleted:
-                        logger.info(f"Documento eliminado de Azure AI Search: {search_key}")
-                    else:
-                        logger.warning(f"No se encontró en Azure AI Search (key): {search_key}")
+                    chunk_ids = get_document_chunk_ids(document.id, document.metadata)
+                    deleted_count = 0
+                    for search_key in chunk_ids:
+                        deleted = _sis.delete_document(search_key)
+                        if deleted:
+                            deleted_count += 1
+                            logger.info(f"Documento eliminado de Azure AI Search: {search_key}")
+                        else:
+                            logger.warning(f"No se encontró en Azure AI Search (key): {search_key}")
+                    logger.info(f"Chunks eliminados en Azure AI Search: {deleted_count}/{len(chunk_ids)}")
                 else:
                     logger.warning("Azure AI Search client no disponible para eliminar por key")
             except Exception as e:

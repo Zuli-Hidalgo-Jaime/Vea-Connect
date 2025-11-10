@@ -4,9 +4,10 @@ Pipeline de procesamiento asíncrono de documentos
 import logging
 import tempfile
 import os
+import re
 from datetime import datetime
 from django.utils import timezone
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Tuple
 import json
 
 # from celery import shared_task
@@ -18,6 +19,255 @@ from services.storage_service import azure_storage
 from services.search_index_service import search_index_service
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_CHUNK_MAX_CHARS = 1000
+DEFAULT_CHUNK_OVERLAP_SEGMENTS = 1
+CHUNK_VERSION = 1
+FAQ_CHUNK_MODE = "faq"
+GENERIC_CHUNK_MODE = "generic"
+
+
+def _normalize_text(text: str) -> str:
+    """Normaliza saltos de línea y espacios consecutivos."""
+    return re.sub(r'[ \t]+', ' ', text.replace('\r\n', '\n').replace('\r', '\n')).strip()
+
+
+def _split_paragraph_into_segments(paragraph: str, max_chars: int) -> List[str]:
+    """
+    Divide un párrafo largo en segmentos seguros usando límites de oración.
+    """
+    paragraph = paragraph.strip()
+    if not paragraph:
+        return []
+
+    if len(paragraph) <= max_chars:
+        return [paragraph]
+
+    sentences = re.split(r'(?<=[\.\?\!])\s+(?=[A-ZÁÉÍÓÚÑ0-9])', paragraph)
+    segments: List[str] = []
+    buffer = ""
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+
+        if len(sentence) > max_chars:
+            # For very long sentences, cut hard limits while preserving words.
+            words = sentence.split(' ')
+            long_buffer = ""
+            for word in words:
+                candidate = f"{long_buffer} {word}".strip()
+                if len(candidate) > max_chars and long_buffer:
+                    segments.append(long_buffer.strip())
+                    long_buffer = word
+                else:
+                    long_buffer = candidate
+            if long_buffer:
+                segments.append(long_buffer.strip())
+            buffer = ""
+            continue
+
+        candidate = f"{buffer} {sentence}".strip() if buffer else sentence
+        if len(candidate) <= max_chars:
+            buffer = candidate
+        else:
+            if buffer:
+                segments.append(buffer.strip())
+            buffer = sentence
+
+    if buffer:
+        segments.append(buffer.strip())
+
+    return segments
+
+
+def split_text_into_faq_sections(text: str) -> Optional[List[str]]:
+    """
+    Detecta bloques tipo FAQ: encabezado numerado o pregunta, seguido de respuesta.
+    Retorna None si no se identifica la estructura.
+    """
+    normalized = _normalize_text(text)
+    if not normalized:
+        return None
+
+    lines = [line.strip() for line in normalized.split('\n') if line.strip()]
+    faq_sections: List[str] = []
+    current_section: List[str] = []
+
+    faq_start_pattern = re.compile(r'^(\d+(\.\d+)*\.?\s+|¿.+\?)')
+
+    for line in lines:
+        if faq_start_pattern.match(line):
+            if current_section:
+                faq_sections.append("\n".join(current_section).strip())
+            current_section = [line]
+        else:
+            if current_section:
+                current_section.append(line)
+            else:
+                # Línea fuera de sección FAQ; abortar este modo
+                return None
+
+    if current_section:
+        faq_sections.append("\n".join(current_section).strip())
+
+    if len(faq_sections) >= 2:
+        return faq_sections
+    return None
+
+
+from typing import Tuple
+
+
+def split_text_into_chunks(
+    text: str,
+    max_chars: int = DEFAULT_CHUNK_MAX_CHARS,
+    overlap_segments: int = DEFAULT_CHUNK_OVERLAP_SEGMENTS
+) -> Tuple[List[str], str]:
+    """
+    Divide texto largo en bloques manteniendo la coherencia entre párrafos.
+    """
+    faq_sections = split_text_into_faq_sections(text)
+    if faq_sections:
+        return _split_chunks_from_sections(faq_sections, max_chars, overlap_segments, True), FAQ_CHUNK_MODE
+
+    normalized = _normalize_text(text)
+    if not normalized:
+        return [], GENERIC_CHUNK_MODE
+
+    raw_paragraphs = [p.strip() for p in re.split(r'\n\s*\n', normalized) if p.strip()]
+
+    # Fusionar encabezados/preguntas con su siguiente párrafo para no separarlos
+    merged_paragraphs: List[str] = []
+    i = 0
+    while i < len(raw_paragraphs):
+        paragraph = raw_paragraphs[i]
+        if i + 1 < len(raw_paragraphs):
+            next_paragraph = raw_paragraphs[i + 1]
+        else:
+            next_paragraph = ""
+
+        if (
+            next_paragraph
+            and len(paragraph) <= max_chars
+            and paragraph.rstrip().endswith(("?", ":", "¿"))
+        ):
+            combined = f"{paragraph}\n\n{next_paragraph}"
+            merged_paragraphs.append(combined.strip())
+            i += 2
+        else:
+            merged_paragraphs.append(paragraph)
+            i += 1
+
+    return (
+        _split_chunks_from_sections(merged_paragraphs, max_chars, overlap_segments, False),
+        GENERIC_CHUNK_MODE,
+    )
+
+
+def _split_chunks_from_sections(
+    sections: List[str],
+    max_chars: int,
+    overlap_segments: int,
+    respect_boundaries: bool
+) -> List[str]:
+    segments: List[str] = []
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+        if respect_boundaries:
+            segments.append(section)
+            continue
+        if len(section) <= max_chars:
+            segments.append(section)
+        else:
+            segments.extend(_split_paragraph_into_segments(section, max_chars))
+
+    if not segments:
+        return []
+
+    chunks: List[str] = []
+    current_segments: List[str] = []
+    current_length = 0
+    separator_len = 2  # len("\n\n")
+
+    for segment in segments:
+        segment_length = len(segment)
+        added_length = segment_length if not current_segments else segment_length + separator_len
+        if current_segments and current_length + added_length > max_chars:
+            chunk_text = "\n\n".join(current_segments).strip()
+            if chunk_text:
+                chunks.append(chunk_text)
+            if overlap_segments > 0 and len(current_segments) >= overlap_segments:
+                current_segments = current_segments[-overlap_segments:]
+            else:
+                current_segments = []
+            current_length = sum(len(s) for s in current_segments)
+            if current_segments:
+                current_length += separator_len * (len(current_segments) - 1)
+
+        current_segments.append(segment)
+        current_length = sum(len(s) for s in current_segments)
+        if len(current_segments) > 1:
+            current_length += separator_len * (len(current_segments) - 1)
+
+    if current_segments:
+        chunk_text = "\n\n".join(current_segments).strip()
+        if chunk_text:
+            chunks.append(chunk_text)
+
+    # Asegurar que exista al menos un chunk
+    if not chunks and sections:
+        combined = "\n\n".join(sections).strip()
+        chunks = [combined] if combined else []
+
+    if respect_boundaries and len(chunks) > 1:
+        adjusted_chunks: List[str] = []
+        carry_over = None
+        for i, chunk in enumerate(chunks):
+            chunk = chunk.strip()
+            if carry_over:
+                if chunk:
+                    chunk = f"{carry_over}\n\n{chunk}"
+                else:
+                    chunk = carry_over
+                carry_over = None
+
+            if chunk.rstrip().endswith('?') and i < len(chunks) - 1:
+                carry_over = chunk
+                continue
+
+            if chunk:
+                adjusted_chunks.append(chunk)
+
+        if carry_over:
+            if adjusted_chunks:
+                adjusted_chunks[-1] = f"{adjusted_chunks[-1]}\n\n{carry_over}"
+            else:
+                adjusted_chunks.append(carry_over)
+        chunks = adjusted_chunks
+
+    return chunks
+
+
+def get_document_chunk_ids(document_id: int, metadata: Optional[Dict[str, Any]]) -> List[str]:
+    """
+    Construye la lista de IDs en Azure Search para un documento chunked.
+    """
+    source_id = f"doc_{document_id}"
+    if not metadata or not isinstance(metadata, dict):
+        return [source_id]
+
+    chunk_info = metadata.get('chunking') or {}
+    chunk_count = chunk_info.get('chunk_count')
+    if isinstance(chunk_count, int) and chunk_count > 1:
+        chunk_ids = [f"{source_id}_chunk_{i:03d}" for i in range(chunk_count)]
+        # Asegurar que la llave legacy también sea eliminada por si existe
+        chunk_ids.append(source_id)
+        return sorted(set(chunk_ids))
+    return [source_id]
 
 
 # @shared_task(bind=True, max_retries=3)
@@ -203,22 +453,50 @@ def process_document_async(document_id: int) -> bool:
         document.processing_state = ProcessingState.INDEXING
         document.save()
         
-        vector = generate_embeddings(content)
+        chunk_texts, chunk_mode = split_text_into_chunks(
+            content,
+            max_chars=DEFAULT_CHUNK_MAX_CHARS,
+            overlap_segments=DEFAULT_CHUNK_OVERLAP_SEGMENTS
+        )
+        if not chunk_texts:
+            chunk_texts = [content]
+            chunk_mode = GENERIC_CHUNK_MODE
+
+        total_chunks = len(chunk_texts)
+        source_id = f"doc_{document.id}"
+
+        # Intentar limpiar cualquier índice previo (legacy)
+        try:
+            search_index_service.delete_document(source_id)
+        except Exception:
+            pass
+
+        # También limpiar posibles chunks antiguos usando metadata existente
+        existing_chunk_ids = get_document_chunk_ids(document.id, document.metadata)
+        for old_chunk_id in existing_chunk_ids:
+            if old_chunk_id != source_id:  # ya se intentó eliminar arriba
+                try:
+                    search_index_service.delete_document(old_chunk_id)
+                except Exception:
+                    pass
+
+        vector_lengths: List[int] = []
+        index_success = True
         
         logger.info(json.dumps({
-            "stage": "embeddings",
+            "stage": "chunking",
             "doc_id": str(document.id),
             "filename": document.file.name,
-            "status": "success",
-            "vector_length": len(vector),
-            "elapsed_ms": (datetime.now() - start_time).total_seconds() * 1000
+            "chunks": total_chunks,
+            "max_chars": DEFAULT_CHUNK_MAX_CHARS,
+            "overlap_segments": DEFAULT_CHUNK_OVERLAP_SEGMENTS
         }))
         
-        # Paso 5: Indexar en Azure Search
+        # Paso 5: Indexar en Azure Search con chunks
         start_time = datetime.now()
         
         # Usar el ID del documento como identificador único
-        document_vector_id = f"doc_{document.id}"
+        document_vector_id = source_id
         
         # Normalizar fecha a Edm.DateTimeOffset (UTC, con sufijo Z)
         created_dt = document.date or timezone.now()
@@ -229,29 +507,61 @@ def process_document_async(document_id: int) -> bool:
                 created_dt = timezone.now()
         created_at_iso = created_dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
         
-        metadata = {
-            'title': document.title,
-            'created_at': created_at_iso,
-            'metadata': json.dumps({
-            'category': document.category,
-            'description': document.description,
-                'filename': document.file.name,
-                'ocr_text': ocr_text or ''
-            })
-        }
-        # Adjuntar embedding solo si es real (None => sin OpenAI configurado)
-        if isinstance(vector, list) and vector:
-            metadata['embedding'] = vector
+        for idx, chunk_text in enumerate(chunk_texts):
+            chunk_id = document_vector_id if total_chunks == 1 else f"{document_vector_id}_chunk_{idx:03d}"
+
+            chunk_metadata_payload = {
+                'title': document.title,
+                'created_at': created_at_iso,
+                'metadata': json.dumps({
+                    'category': document.category,
+                    'description': document.description,
+                    'filename': document.file.name,
+                    'ocr_text': ocr_text if idx == 0 else '',
+                    'source_id': document_vector_id,
+                    'chunk_index': idx,
+                    'chunk_count': total_chunks,
+                    'chunk_mode': chunk_mode
+                })
+            }
+
+            vector = generate_embeddings(chunk_text)
+            vector_lengths.append(len(vector) if isinstance(vector, list) else 0)
+            if isinstance(vector, list) and vector:
+                chunk_metadata_payload['embedding'] = vector
+
+            chunk_success = search_index_service.upsert_document(
+                chunk_id,
+                chunk_text,
+                chunk_metadata_payload
+            )
+            index_success = index_success and chunk_success
+
+        logger.info(json.dumps({
+            "stage": "embeddings",
+            "doc_id": str(document.id),
+            "filename": document.file.name,
+            "status": "success" if index_success else "partial",
+            "chunks": total_chunks,
+            "vector_lengths": vector_lengths,
+            "elapsed_ms": (datetime.now() - start_time).total_seconds() * 1000
+        }))
         
-        success = search_index_service.upsert_document(
-            document_vector_id,
-            content,
-            metadata
-        )
-        
-        if success:
+        if index_success:
             document.processing_state = ProcessingState.READY
             document.is_processed = True
+            # Actualizar metadata con información de chunking
+            doc_metadata = document.metadata if isinstance(document.metadata, dict) else {}
+            doc_metadata = doc_metadata or {}
+            doc_metadata['chunking'] = {
+                'version': CHUNK_VERSION,
+                'chunk_count': total_chunks,
+                'max_chars': DEFAULT_CHUNK_MAX_CHARS,
+                'overlap_segments': DEFAULT_CHUNK_OVERLAP_SEGMENTS,
+                'mode': chunk_mode,
+                'last_indexed_at': timezone.now().isoformat()
+            }
+            document.metadata = doc_metadata
             document.save()
             
             logger.info(json.dumps({
@@ -334,6 +644,23 @@ def convert_document_to_text(file_content: ContentFile) -> str:
                     content = f.read()
             elif ext == '.pdf':
                 content = vision_service.extract_text_from_pdf(temp_file_path)
+                try:
+                    import fitz  # type: ignore
+                    with fitz.open(temp_file_path) as pdf_doc:
+                        fallback_text = [page.get_text("text") for page in pdf_doc]
+                    fallback_combined = "\n".join(fallback_text).strip()
+                    if fallback_combined and len(fallback_combined) > len(content or ""):
+                        logger.info(
+                            "Fallback PyMuPDF used for PDF %s (length %s -> %s)",
+                            filename,
+                            len(content or ""),
+                            len(fallback_combined),
+                        )
+                        content = fallback_combined
+                except ImportError:
+                    logger.warning("PyMuPDF not installed; cannot apply PDF fallback for %s", filename)
+                except Exception as fallback_exc:
+                    logger.warning("PyMuPDF fallback failed for %s: %s", filename, fallback_exc)
             elif ext in ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.tif'):
                 content = vision_service.extract_text_from_image(temp_file_path)
             elif ext in ('.doc', '.docx'):
@@ -400,8 +727,9 @@ def reprocess_document(document_id: int) -> bool:
         #     pass
         
         # Eliminar del índice de búsqueda
-        document_vector_id = f"doc_{document.id}"
-        search_index_service.delete_document(document_vector_id)
+        chunk_ids = get_document_chunk_ids(document.id, document.metadata)
+        for chunk_id in chunk_ids:
+            search_index_service.delete_document(chunk_id)
         
         # Reprocesar (comentado ya que no es una tarea de Celery)
         # return process_document_async.delay(document_id)
