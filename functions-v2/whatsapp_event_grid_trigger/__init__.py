@@ -1173,6 +1173,16 @@ def _generate_ai_response(user_message: str, conversation_history: List[Dict[str
                 ai_response = re.sub(r',\s*,', ',', ai_response)
                 ai_response = ai_response.strip()
                 
+                # Limitar respuesta a máximo 3 renglones equivalentes
+                max_lines = 3
+                lines = [line.strip() for line in ai_response.splitlines() if line.strip()]
+                if len(lines) > max_lines:
+                    ai_response = " ".join(lines[:max_lines])
+                else:
+                    sentences = re.split(r'(?<=[\.\?\!])\s+', ai_response)
+                    if len(sentences) > max_lines:
+                        ai_response = " ".join(sentences[:max_lines]).strip()
+
                 # Capitalizar primera letra si se perdió
                 if ai_response and ai_response[0].islower():
                     ai_response = ai_response[0].upper() + ai_response[1:]
